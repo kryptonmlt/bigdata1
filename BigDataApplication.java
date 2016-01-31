@@ -57,23 +57,19 @@ public class BigDataApplication {
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
 
-			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm");
-			df.setTimeZone(TimeZone.getTimeZone("UTC"));
-
 			// read query parameters
 			Configuration conf = context.getConfiguration();
 			Date dateFrom = null;
 			Date dateTo = null;
 			try {
-				dateFrom = df.parse(conf.get(BigDataApplication.DATE_FROM)
-						.replace("T", " ").replace("Z", " "));
-				dateTo = df.parse(conf.get(BigDataApplication.DATE_TO)
-						.replace("T", " ").replace("Z", " "));
+				dateFrom = Tools.getDateFromWikiString(conf
+						.get(BigDataApplication.DATE_FROM));
+				dateTo = Tools.getDateFromWikiString(conf
+						.get(BigDataApplication.DATE_TO));
 			} catch (ParseException e) {
 				e.printStackTrace();
 			}
 			String k = conf.get(BigDataApplication.K);
-			// System.out.println("Mapper Started!\nKEY: "+key+"\nValue: "+value.toString()+"\nMapper End!");
 
 			Revision r = new Revision();
 			StringTokenizer words = new StringTokenizer(value.toString());
@@ -136,11 +132,8 @@ public class BigDataApplication {
 			}
 
 			public Date getTimeStamp() {
-				DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm");
-				df.setTimeZone(TimeZone.getTimeZone("UTC"));
 				try {
-					return df.parse(revisionField[3].replace("T", " ").replace(
-							"Z", " "));
+					return Tools.getDateFromWikiString(revisionField[3]);
 				} catch (ParseException e) {
 					e.printStackTrace();
 					return new Date();
@@ -189,14 +182,25 @@ public class BigDataApplication {
 		}
 	}
 
+	public static class Tools {
+
+		private Tools() {
+
+		}
+
+		public static Date getDateFromWikiString(String wikiText)
+				throws ParseException {
+			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+			df.setTimeZone(TimeZone.getTimeZone("UTC"));
+			return df.parse(wikiText.replace("T", " ").replace("Z", ""));
+		}
+	}
+
 	public static void main(String[] args) throws Exception {
 
 		System.out.println("BigDataApplication Started");
 		Configuration conf = new Configuration();
 		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		// int linesPerMapper = BigDataApplication.RECORD_LENGTH
-		// * BigDataApplication.RECORDS_PER_MAPPER;
-		// conf.setInt("mapreduce.input.lineinputformat.linespermap",linesPerMapper);
 
 		String inputLoc = "/user/hadoop/wiki/wiki_1428.txt";
 		String outputLoc = "/user/hadoop/wiki/output";
@@ -251,8 +255,6 @@ public class BigDataApplication {
 			System.exit(-1);
 			break;
 		}
-
-		// job.setInputFormatClass(MultiLineInputFormat.class);
 
 		FileInputFormat.addInputPath(job, new Path(inputLoc));
 		FileOutputFormat.setOutputPath(job, new Path(outputLoc));
