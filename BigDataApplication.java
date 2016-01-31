@@ -75,45 +75,23 @@ public class BigDataApplication {
 			String k = conf.get(BigDataApplication.K);
 			// System.out.println("Mapper Started!\nKEY: "+key+"\nValue: "+value.toString()+"\nMapper End!");
 
-			StringTokenizer lines = new StringTokenizer(value.toString(),
-					"\n\r\f");
-			int recordCount = 0;
 			Revision r = new Revision();
+			StringTokenizer words = new StringTokenizer(value.toString());
 
-			// parse each line
-			while (lines.hasMoreTokens()) {
-				String line = lines.nextToken();
-				StringTokenizer words = new StringTokenizer(line.toString());
+			// par each word in line
+			while (words.hasMoreTokens()) {
+				String word = words.nextToken();
+				if ("REVISION".equals(word)) {
 
-				// par each word in line
-				while (words.hasMoreTokens()) {
-					String word = words.nextToken();
-					if ("REVISION".equals(word)) {
-
-						// process revision
-						if (recordCount == 13) {
-							// valid article.. all fields exist
-							mapRevision(r, dateTo, dateFrom, context);
-
-						} else if (recordCount != 0) {
-							System.out.println("Invalid Article ..");
-						}
-
-						// start new revision
-						recordCount = 0;
-						r = new Revision();
-						String tmpToken = "";
-						// populate revision
-						while (words.hasMoreTokens()
-								&& !"CATEGORY".equals(tmpToken = words
-										.nextToken())) {
-							r.setRevisionFields(tmpToken.trim());
-						}
+					// populate revision
+					String tmpToken = "";
+					while (words.hasMoreTokens()
+							&& !"CATEGORY".equals(tmpToken = words.nextToken())) {
+						r.setRevisionFields(tmpToken.trim());
 					}
+					mapRevision(r, dateTo, dateFrom, context);
 				}
-				recordCount++;
 			}
-			mapRevision(r, dateTo, dateFrom, context);
 		}
 
 		public void mapRevision(Revision r, Date dateTo, Date dateFrom,
