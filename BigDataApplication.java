@@ -5,7 +5,6 @@ import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -24,6 +23,7 @@ import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 
 public class BigDataApplication {
@@ -33,6 +33,10 @@ public class BigDataApplication {
 	public static final String DATE_TO = "DATE_TO";
 
 	public static final String K = "K";
+
+	public static final int RECORD_LENGTH = 2000;
+
+	public static final int RECORDS_PER_MAPPER = 14;
 
 	/**
 	 * Gathers revision information from records
@@ -59,7 +63,6 @@ public class BigDataApplication {
 				e.printStackTrace();
 			}
 
-			Revision r = new Revision();
 			StringTokenizer words = new StringTokenizer(value.toString());
 
 			// par each word in line
@@ -68,91 +71,30 @@ public class BigDataApplication {
 				if ("REVISION".equals(word)) {
 
 					// populate revision
-					String tmpToken = "";
-					while (words.hasMoreTokens()
-							&& !"CATEGORY".equals(tmpToken = words.nextToken())) {
-						r.setRevisionFields(tmpToken.trim());
+					String articleId = words.nextToken();
+					String revisionId = words.nextToken();
+					String articleTitle = words.nextToken();
+					String timeStamp = words.nextToken();
+
+					Date timeStampDate;
+					try {
+						timeStampDate = Tools.getDateFromWikiString(timeStamp);
+					} catch (ParseException e) {
+						e.printStackTrace();
+						timeStampDate = new Date();
 					}
-					mapRevision(r, dateTo, dateFrom, context);
+
+					if (timeStampDate.before(dateTo)
+							&& (dateFrom == null || timeStampDate
+									.after(dateFrom))) {
+						context.write(
+								new ArticleIdModificationsWritable(Long
+										.parseLong(articleId), 1),
+								new RevisionTimeStampWritable(Long
+										.parseLong(revisionId), timeStamp));
+					}
+
 				}
-			}
-		}
-
-		/**
-		 * Writes revision if it passes validation and time interval test
-		 * 
-		 * @author kurtp
-		 */
-		public void mapRevision(Revision r, Date dateTo, Date dateFrom,
-				Context context) throws IOException, InterruptedException {
-
-			// validate revision.. all fields exist
-			if (r.isValid()) {
-				// check if revision occurred in
-				// time interval
-				if (r.getTimeStamp().before(dateTo)
-						&& (dateFrom == null || r.getTimeStamp()
-								.after(dateFrom))) {
-					context.write(
-							new ArticleIdModificationsWritable(
-									r.getArticleId(), 1),
-							new RevisionTimeStampWritable(r.getRevisionId(), r
-									.getTimeStampString()));
-				}
-			} else {
-				System.out.println("Invalid Revision .. " + r.getRevisionId());
-			}
-		}
-
-		/**
-		 * Revision class
-		 * 
-		 * @author kurtp
-		 */
-		private class Revision {
-
-			// article_id,revision_id,article title, timeStamp, ipUsername,
-			// userId
-			public String[] revisionField = new String[6];
-			private int revCount = 0;
-
-			public Revision() {
-
-			}
-
-			public String getTimeStampString() {
-				return revisionField[3];
-			}
-
-			public void setRevisionFields(String value) {
-				try {
-					revisionField[revCount] = value;
-					revCount++;
-				} catch (ArrayIndexOutOfBoundsException e) {
-					System.out.println("Error adding: " + value + " to: "
-							+ Arrays.toString(revisionField));
-				}
-			}
-
-			public Long getArticleId() {
-				return Long.parseLong(revisionField[0]);
-			}
-
-			public Long getRevisionId() {
-				return Long.parseLong(revisionField[1]);
-			}
-
-			public Date getTimeStamp() {
-				try {
-					return Tools.getDateFromWikiString(revisionField[3]);
-				} catch (ParseException e) {
-					e.printStackTrace();
-					return new Date();
-				}
-			}
-
-			public boolean isValid() {
-				return revCount == 6;
 			}
 		}
 
@@ -474,19 +416,23 @@ public class BigDataApplication {
 		Configuration conf = new Configuration();
 
 		// assignment final conf
-		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
-		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
-		String inputLoc = "/user/bd4-ae1/";
-		String inputFileName = "enwiki-20080103-full.txt";
-		String outputLoc = "/user/2222148p/output";
+		//conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
+		//conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
+		//String inputLoc = "/user/bd4-ae1/";
+		//String inputFileName = "enwiki-20080103-full.txt";
+		//String outputLoc = "/user/2222148p/output";
 
 		// localhost stuff
-		// conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		// String inputLoc = "/user/hadoop/wiki/";
-		// String inputFileName = "wiki_1428.txt";
-		// String outputLoc = "/user/hadoop/wiki/output/";
+		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
+		String inputLoc = "/user/hadoop/wiki/";
+		String inputFileName = "wiki_1428.txt";
+		String outputLoc = "/user/hadoop/wiki/output/";
 
 		String outputFileName = "part-r-00000";
+
+		int linesPerMapper = BigDataApplication.RECORD_LENGTH
+				* BigDataApplication.RECORDS_PER_MAPPER;
+		//conf.setInt("mapreduce.input.lineinputformat.linespermap",linesPerMapper);
 
 		Job job = null;
 		switch (args.length) {
@@ -532,6 +478,8 @@ public class BigDataApplication {
 		job.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
 		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
 		job.setOutputKeyClass(LongWritable.class);
+		//job.setInputFormatClass(MultiLineInputFormat.class);
+		job.setInputFormatClass(TextInputFormat.class);
 
 		FileInputFormat.addInputPath(job, new Path(inputLoc + inputFileName));
 		FileOutputFormat.setOutputPath(job, new Path(outputLoc));
@@ -551,6 +499,7 @@ public class BigDataApplication {
 				job2.setMapOutputValueClass(NullWritable.class);
 				job2.setOutputKeyClass(LongWritable.class);
 				job2.setOutputValueClass(LongWritable.class);
+				job2.setInputFormatClass(TextInputFormat.class);
 
 				FileInputFormat.addInputPath(job2, new Path(outputLoc
 						+ outputFileName));
