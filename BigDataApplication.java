@@ -33,11 +33,6 @@ public class BigDataApplication {
 	public static final String DATE_TO = "DATE_TO";
 
 	public static final String K = "K";
-
-	public static final int RECORD_LENGTH = 2000;
-
-	public static final int RECORDS_PER_MAPPER = 14;
-
 	/**
 	 * Gathers revision information from records
 	 * 
@@ -67,57 +62,42 @@ public class BigDataApplication {
 					"\n\r\f");
 			while (lines.hasMoreTokens()) {
 				String line = lines.nextToken();
-				StringTokenizer words = new StringTokenizer(line.toString(),
-						" \t");
-				//String[] words = line.split(" ");
+				String[] words = line.split(" ");
 
 				// par each word in line
-				while (words.hasMoreTokens()) {
-					String word = words.nextToken();
-					if ("REVISION".equals(word)) {
+				if ("REVISION".equals(words[0])) {
 
-						// populate revision
-						String articleId = null;
-						String revisionId = null;
-						String articleTitle = null;
-						String timeStamp = null;
+					// populate revision
+					String articleId = null;
+					String revisionId = null;
+					String timeStamp = null;
+					try {
+						articleId = words[1];
+						revisionId = words[2];
+						timeStamp = words[4];
+
+						Date timeStampDate;
 						try {
-							if (words.hasMoreTokens()) {
-								articleId = words.nextToken();
-								if (!articleId.equals("*/")
-										&& words.hasMoreTokens()) {
-
-									revisionId = words.nextToken();
-									articleTitle = words.nextToken();
-									timeStamp = words.nextToken();
-
-									Date timeStampDate;
-									try {
-										timeStampDate = Tools
-												.getDateFromWikiString(timeStamp);
-									} catch (ParseException e) {
-										e.printStackTrace();
-										timeStampDate = new Date();
-									}
-
-									if (timeStampDate.before(dateTo)
-											&& (dateFrom == null || timeStampDate
-													.after(dateFrom))) {
-										context.write(
-												new ArticleIdModificationsWritable(
-														Long.parseLong(articleId),
-														1),
-												new RevisionTimeStampWritable(
-														Long.parseLong(revisionId),
-														timeStamp));
-									}
-								}
-							}
-						} catch (Exception e) {
-							throw new IOException("Line: " + line);
+							timeStampDate = Tools
+									.getDateFromWikiString(timeStamp);
+						} catch (ParseException e) {
+							e.printStackTrace();
+							timeStampDate = new Date();
 						}
 
+						if (timeStampDate.before(dateTo)
+								&& (dateFrom == null || timeStampDate
+										.after(dateFrom))) {
+							context.write(
+									new ArticleIdModificationsWritable(Long
+											.parseLong(articleId), 1),
+									new RevisionTimeStampWritable(Long
+											.parseLong(revisionId), timeStamp));
+						}
+					} catch (Exception e) {
+						throw new IOException("Line: " + line);
 					}
+
 				}
 			}
 		}
@@ -210,9 +190,6 @@ public class BigDataApplication {
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
 
-			Configuration conf = context.getConfiguration();
-			String k = conf.get(BigDataApplication.K);
-
 			StringTokenizer words = new StringTokenizer(value.toString());
 
 			// par each word in line
@@ -235,6 +212,10 @@ public class BigDataApplication {
 		public void reduce(ArticleIdModificationsWritable key,
 				Iterable<NullWritable> values, Context context)
 				throws IOException, InterruptedException {
+
+			Configuration conf = context.getConfiguration();
+			long k = Long.parseLong(conf.get(BigDataApplication.K));
+
 			context.write(new LongWritable(key.getArticleId()),
 					new LongWritable(key.getModifications()));
 		}
@@ -442,21 +423,15 @@ public class BigDataApplication {
 		// assignment final conf
 		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
 		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
-		String inputLoc = "/user/bd4-ae1/";
-		String inputFileName = "enwiki-20080103-full.txt";
+		String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
 		String outputLoc = "/user/2222148p/output";
+		String tempLoc = "/user/2222148p/temp";
 
 		// localhost stuff
 		// conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		// String inputLoc = "/user/hadoop/wiki/";
-		// String inputFileName = "wiki_1428.txt";
+		// String inputLoc = "/user/hadoop/wiki/wiki_1428.txt";
 		// String outputLoc = "/user/hadoop/wiki/output/";
-
-		String outputFileName = "part-r-00000";
-
-		int linesPerMapper = BigDataApplication.RECORD_LENGTH
-				* BigDataApplication.RECORDS_PER_MAPPER;
-		// conf.setInt("mapreduce.input.lineinputformat.linespermap",linesPerMapper);
+		// String tempLoc = "/user/hadoop/wiki/temp/";
 
 		Job job = null;
 		switch (args.length) {
@@ -502,11 +477,14 @@ public class BigDataApplication {
 		job.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
 		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
 		job.setOutputKeyClass(LongWritable.class);
-		// job.setInputFormatClass(MultiLineInputFormat.class);
 		job.setInputFormatClass(TextInputFormat.class);
 
-		FileInputFormat.addInputPath(job, new Path(inputLoc + inputFileName));
-		FileOutputFormat.setOutputPath(job, new Path(outputLoc));
+		FileInputFormat.addInputPath(job, new Path(inputLoc));
+		if (args.length == 3) {
+			FileOutputFormat.setOutputPath(job, new Path(tempLoc));
+		} else {
+			FileOutputFormat.setOutputPath(job, new Path(outputLoc));
+		}
 
 		// waiting for job to finish
 		boolean job1FinishedCorrectly = job.waitForCompletion(true);
@@ -524,11 +502,10 @@ public class BigDataApplication {
 				job2.setOutputKeyClass(LongWritable.class);
 				job2.setOutputValueClass(LongWritable.class);
 				job2.setInputFormatClass(TextInputFormat.class);
+				job2.setNumReduceTasks(1);
 
-				FileInputFormat.addInputPath(job2, new Path(outputLoc
-						+ outputFileName));
-				FileOutputFormat.setOutputPath(job2, new Path(inputLoc
-						+ "sortedOutput/"));
+				FileInputFormat.addInputPath(job2, new Path(tempLoc));
+				FileOutputFormat.setOutputPath(job2, new Path(outputLoc));
 				// wait for sorting to finish
 				System.exit(job2.waitForCompletion(true) ? 0 : 1);
 
