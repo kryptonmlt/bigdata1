@@ -37,11 +37,11 @@ public class BigDataApplication {
 
 	/**
 	 * Gathers revision information from records
+	 * 
 	 * @author kurtp
 	 */
-	public static class BigDataAssignmentMapper
-			extends
-			Mapper<Object, Text, CompositeKeyWritable, RevisionTimeStampWritable> {
+	public static class BigDataAssignmentMapper extends
+			Mapper<Object, Text, LongWritable, RevisionTimeStampWritable> {
 
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
@@ -77,9 +77,10 @@ public class BigDataApplication {
 				}
 			}
 		}
-		
+
 		/**
 		 * Writes revision if it passes validation and time interval test
+		 * 
 		 * @author kurtp
 		 */
 		public void mapRevision(Revision r, Date dateTo, Date dateFrom,
@@ -93,7 +94,7 @@ public class BigDataApplication {
 						&& (dateFrom == null || r.getTimeStamp()
 								.after(dateFrom))) {
 					context.write(
-							new CompositeKeyWritable(r.getArticleId()),
+							new LongWritable(r.getArticleId()),
 							new RevisionTimeStampWritable(r.getRevisionId(), r
 									.getTimeStampString()));
 				}
@@ -101,9 +102,10 @@ public class BigDataApplication {
 				System.out.println("Invalid Revision .. " + r.getRevisionId());
 			}
 		}
-		
+
 		/**
 		 * Revision class
+		 * 
 		 * @author kurtp
 		 */
 		private class Revision {
@@ -149,17 +151,19 @@ public class BigDataApplication {
 		}
 
 	}
-	
+
 	/**
-	 * Receives Articles with different revisions and timestamps. Sorts the revisions in this time interval
+	 * Receives Articles with different revisions and timestamps. Sorts the
+	 * revisions in this time interval
+	 * 
 	 * @author kurtp
 	 *
 	 */
 	public static class Part1Reducer
 			extends
-			Reducer<CompositeKeyWritable, RevisionTimeStampWritable, LongWritable, Text> {
+			Reducer<LongWritable, RevisionTimeStampWritable, LongWritable, Text> {
 
-		public void reduce(CompositeKeyWritable key,
+		public void reduce(LongWritable key,
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 			List<Long> revisions = new ArrayList<Long>();
@@ -175,21 +179,22 @@ public class BigDataApplication {
 					sb.append(revisions.get(i)).append(" ");
 				}
 			}
-			context.write(new LongWritable(key.getArticleId()), new Text(
-					revisions.size() + " " + sb.toString()));
+			context.write(key, new Text(revisions.size() + " " + sb.toString()));
 		}
 	}
-	
+
 	/**
-	 * Receives Articles with different revisions and timestamps. Adds up the total number of modifications
+	 * Receives Articles with different revisions and timestamps. Adds up the
+	 * total number of modifications
+	 * 
 	 * @author kurtp
 	 *
 	 */
 	public static class Part2Reducer
 			extends
-			Reducer<CompositeKeyWritable, RevisionTimeStampWritable, LongWritable, IntWritable> {
+			Reducer<LongWritable, RevisionTimeStampWritable, LongWritable, IntWritable> {
 
-		public void reduce(CompositeKeyWritable key,
+		public void reduce(LongWritable key,
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 
@@ -200,21 +205,22 @@ public class BigDataApplication {
 			for (RevisionTimeStampWritable value : values) {
 				sum++;
 			}
-			context.write(new LongWritable(key.getArticleId()),
-					new IntWritable(sum));
+			context.write(key, new IntWritable(sum));
 		}
 	}
 
 	/**
-	 * Receives Articles with different revisions and timestamps. Lists the revisions current at a point in time.
+	 * Receives Articles with different revisions and timestamps. Lists the
+	 * revisions current at a point in time.
+	 * 
 	 * @author kurtp
 	 *
 	 */
 	public static class Part3Reducer
 			extends
-			Reducer<CompositeKeyWritable, RevisionTimeStampWritable, LongWritable, Text> {
+			Reducer<LongWritable, RevisionTimeStampWritable, LongWritable, Text> {
 
-		public void reduce(CompositeKeyWritable key,
+		public void reduce(LongWritable key,
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 
@@ -246,13 +252,13 @@ public class BigDataApplication {
 			} catch (ParseException e) {
 				e.printStackTrace();
 			}
-			context.write(new LongWritable(key.getArticleId()), new Text(
-					revisionId + " " + timeStampResult));
+			context.write(key, new Text(revisionId + " " + timeStampResult));
 		}
 	}
-	
+
 	/**
 	 * Random Tools
+	 * 
 	 * @author kurtp
 	 *
 	 */
@@ -261,6 +267,7 @@ public class BigDataApplication {
 		private Tools() {
 
 		}
+
 		/**
 		 * Convert WikiString to Date
 		 *
@@ -275,14 +282,15 @@ public class BigDataApplication {
 			return df.parse(wikiText.replace("T", " ").replace("Z", ""));
 		}
 	}
-	
+
 	/**
 	 * Output Mapper object containing revision Id and TimeStamp
+	 * 
 	 * @author kurtp
 	 *
 	 */
 	public static class RevisionTimeStampWritable implements Writable,
-			WritableComparable<CompositeKeyWritable> {
+			WritableComparable<RevisionTimeStampWritable> {
 
 		private Long revisionId;
 		private String timeStamp;
@@ -311,8 +319,8 @@ public class BigDataApplication {
 			WritableUtils.writeString(dataOutput, timeStamp);
 		}
 
-		public int compareTo(CompositeKeyWritable objKeyPair) {
-			int result = revisionId.compareTo(objKeyPair.articleId);
+		public int compareTo(RevisionTimeStampWritable objKeyPair) {
+			int result = revisionId.compareTo(objKeyPair.revisionId);
 			return result;
 		}
 
@@ -334,104 +342,22 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Article Id writable
-	 * @author kurtp
-	 *
-	 */
-	public static class CompositeKeyWritable implements Writable,
-			WritableComparable<CompositeKeyWritable> {
-
-		private Long articleId;
-
-		public CompositeKeyWritable() {
-		}
-
-		public CompositeKeyWritable(long articleId) {
-			this.articleId = articleId;
-		}
-
-		@Override
-		public String toString() {
-			return (new StringBuilder().append(articleId)).toString();
-		}
-
-		public void readFields(DataInput dataInput) throws IOException {
-			articleId = WritableUtils.readVLong(dataInput);
-		}
-
-		public void write(DataOutput dataOutput) throws IOException {
-			WritableUtils.writeVLong(dataOutput, articleId);
-		}
-
-		public int compareTo(CompositeKeyWritable objKeyPair) {
-			int result = articleId.compareTo(objKeyPair.articleId);
-			return result;
-		}
-
-		public Long getArticleId() {
-			return articleId;
-		}
-
-		public void setArticleId(Long articleId) {
-			this.articleId = articleId;
-		}
-	}
-
-	/**
-	 * Partitioins articles to the same reducers
-	 * @author kurtp
-	 *
-	 */
-	public static class SecondarySortBasicPartitioner extends
-			Partitioner<CompositeKeyWritable, Text> {
-
-		@Override
-		public int getPartition(CompositeKeyWritable key, Text value,
-				int numReduceTasks) {
-
-			return (key.getArticleId().hashCode() % numReduceTasks);
-		}
-	}
-	
-	/**
-	 * Is able to sort other fields apart from articleId
-	 * Currently not used
-	 * @author kurtp
-	 *
-	 */
-	public static class SecondarySortBasicCompKeySortComparator extends
-			WritableComparator {
-
-		protected SecondarySortBasicCompKeySortComparator() {
-			super(CompositeKeyWritable.class, true);
-		}
-
-		@Override
-		public int compare(WritableComparable w1, WritableComparable w2) {
-			CompositeKeyWritable key1 = (CompositeKeyWritable) w1;
-			CompositeKeyWritable key2 = (CompositeKeyWritable) w2;
-
-			int cmpResult = key1.getArticleId().compareTo(key2.getArticleId());
-			return cmpResult;
-		}
-	}
-
-	/**
 	 * Groups Articles together
+	 * 
 	 * @author kurtp
 	 *
 	 */
 	public static class SecondarySortBasicGroupingComparator extends
 			WritableComparator {
 		protected SecondarySortBasicGroupingComparator() {
-			super(CompositeKeyWritable.class, true);
+			super(LongWritable.class, true);
 		}
 
 		@Override
 		public int compare(WritableComparable w1, WritableComparable w2) {
-			CompositeKeyWritable key1 = (CompositeKeyWritable) w1;
-			CompositeKeyWritable key2 = (CompositeKeyWritable) w2;
-			return key1.getArticleId().compareTo(key2.getArticleId());
+			LongWritable key1 = (LongWritable) w1;
+			LongWritable key2 = (LongWritable) w2;
+			return key1.compareTo(key2);
 		}
 	}
 
@@ -439,8 +365,14 @@ public class BigDataApplication {
 
 		System.out.println("BigDataApplication Started");
 		Configuration conf = new Configuration();
-		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
 
+		// assignment final conf
+		// conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
+		// String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
+		// String outputLoc = "/user/hadoop/wiki/output";
+
+		// localhost stuff
+		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
 		String inputLoc = "/user/hadoop/wiki/wiki_1428.txt";
 		String outputLoc = "/user/hadoop/wiki/output";
 
@@ -452,8 +384,9 @@ public class BigDataApplication {
 			conf.set(BigDataApplication.DATE_FROM, args[0]);
 			conf.set(BigDataApplication.DATE_TO, args[1]);
 
-			job = Job.getInstance(conf, "BigData1");			
+			job = Job.getInstance(conf, "BigData1");
 			job.setReducerClass(Part1Reducer.class);
+		    //job.setCombinerClass(Part1Reducer.class);
 			job.setOutputValueClass(Text.class);
 			break;
 		case 3: // problem 2
@@ -465,6 +398,7 @@ public class BigDataApplication {
 
 			job = Job.getInstance(conf, "BigData2");
 			job.setReducerClass(Part2Reducer.class);
+		    //job.setCombinerClass(Part2Reducer.class);
 			job.setOutputValueClass(IntWritable.class);
 			break;
 		case 1: // problem 3
@@ -474,6 +408,7 @@ public class BigDataApplication {
 
 			job = Job.getInstance(conf, "BigData3");
 			job.setReducerClass(Part3Reducer.class);
+		    //job.setCombinerClass(Part3Reducer.class);
 			job.setOutputValueClass(Text.class);
 			break;
 		default:
@@ -484,10 +419,8 @@ public class BigDataApplication {
 
 		job.setJarByClass(BigDataApplication.class);
 		job.setMapperClass(BigDataAssignmentMapper.class);
-		job.setMapOutputKeyClass(CompositeKeyWritable.class);
+		job.setMapOutputKeyClass(LongWritable.class);
 		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
-		job.setPartitionerClass(SecondarySortBasicPartitioner.class);
-		job.setSortComparatorClass(SecondarySortBasicCompKeySortComparator.class);
 		job.setGroupingComparatorClass(SecondarySortBasicGroupingComparator.class);
 		job.setOutputKeyClass(LongWritable.class);
 
