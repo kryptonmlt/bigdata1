@@ -13,7 +13,6 @@ import java.util.TimeZone;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
@@ -22,7 +21,6 @@ import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
-import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
@@ -40,8 +38,9 @@ public class BigDataApplication {
 	 * 
 	 * @author kurtp
 	 */
-	public static class BigDataAssignmentMapper extends
-			Mapper<Object, Text, LongWritable, RevisionTimeStampWritable> {
+	public static class BigDataAssignmentMapper
+			extends
+			Mapper<Object, Text, ArticleIdModificationsWritable, RevisionTimeStampWritable> {
 
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
@@ -94,7 +93,8 @@ public class BigDataApplication {
 						&& (dateFrom == null || r.getTimeStamp()
 								.after(dateFrom))) {
 					context.write(
-							new LongWritable(r.getArticleId()),
+							new ArticleIdModificationsWritable(
+									r.getArticleId(), 1),
 							new RevisionTimeStampWritable(r.getRevisionId(), r
 									.getTimeStampString()));
 				}
@@ -161,9 +161,9 @@ public class BigDataApplication {
 	 */
 	public static class Part1Reducer
 			extends
-			Reducer<LongWritable, RevisionTimeStampWritable, LongWritable, Text> {
+			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, LongWritable, Text> {
 
-		public void reduce(LongWritable key,
+		public void reduce(ArticleIdModificationsWritable key,
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 			List<Long> revisions = new ArrayList<Long>();
@@ -179,7 +179,39 @@ public class BigDataApplication {
 					sb.append(revisions.get(i)).append(" ");
 				}
 			}
-			context.write(key, new Text(revisions.size() + " " + sb.toString()));
+			context.write(new LongWritable(key.getArticleId()), new Text(
+					revisions.size() + " " + sb.toString()));
+		}
+	}
+
+	/**
+	 * Receives Articles with different revisions and timestamps. Adds them up
+	 * together.
+	 * 
+	 * @author kurtp
+	 *
+	 */
+	public static class Part2Combiner
+			extends
+			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, ArticleIdModificationsWritable, RevisionTimeStampWritable> {
+
+		public void reduce(ArticleIdModificationsWritable key,
+				Iterable<RevisionTimeStampWritable> values, Context context)
+				throws IOException, InterruptedException {
+
+			Configuration conf = context.getConfiguration();
+			String k = conf.get(BigDataApplication.K);
+
+			int sum = 0;
+			Long latestRevision = 0L;
+			for (RevisionTimeStampWritable value : values) {
+				sum++;
+				latestRevision = value.getRevisionId();
+			}
+
+			context.write(new ArticleIdModificationsWritable(
+					key.getArticleId(), sum), new RevisionTimeStampWritable(
+					latestRevision.longValue(), ""));
 		}
 	}
 
@@ -192,20 +224,17 @@ public class BigDataApplication {
 	 */
 	public static class Part2Reducer
 			extends
-			Reducer<LongWritable, RevisionTimeStampWritable, LongWritable, IntWritable> {
+			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, LongWritable, LongWritable> {
 
-		public void reduce(LongWritable key,
+		public void reduce(ArticleIdModificationsWritable key,
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 
 			Configuration conf = context.getConfiguration();
 			String k = conf.get(BigDataApplication.K);
-
-			int sum = 0;
-			for (RevisionTimeStampWritable value : values) {
-				sum++;
-			}
-			context.write(key, new IntWritable(sum));
+			
+			context.write(new LongWritable(key.getArticleId()),
+					new LongWritable(key.getModifications()));
 		}
 	}
 
@@ -218,9 +247,9 @@ public class BigDataApplication {
 	 */
 	public static class Part3Reducer
 			extends
-			Reducer<LongWritable, RevisionTimeStampWritable, LongWritable, Text> {
+			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, LongWritable, Text> {
 
-		public void reduce(LongWritable key,
+		public void reduce(ArticleIdModificationsWritable key,
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 
@@ -252,7 +281,8 @@ public class BigDataApplication {
 			} catch (ParseException e) {
 				e.printStackTrace();
 			}
-			context.write(key, new Text(revisionId + " " + timeStampResult));
+			context.write(new LongWritable(key.getArticleId()), new Text(
+					revisionId + " " + timeStampResult));
 		}
 	}
 
@@ -280,6 +310,67 @@ public class BigDataApplication {
 			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm");
 			df.setTimeZone(TimeZone.getTimeZone("UTC"));
 			return df.parse(wikiText.replace("T", " ").replace("Z", ""));
+		}
+	}
+
+	/**
+	 * Output Key Mapper object containing article Id and modifications
+	 * 
+	 * @author kurtp
+	 *
+	 */
+	public static class ArticleIdModificationsWritable implements Writable,
+			WritableComparable<ArticleIdModificationsWritable> {
+
+		private Long articleId;
+		private Long modifications;
+
+		public ArticleIdModificationsWritable() {
+		}
+
+		public ArticleIdModificationsWritable(long articleId, long modifications) {
+			this.articleId = articleId;
+			this.modifications = modifications;
+		}
+
+		@Override
+		public String toString() {
+			return (new StringBuilder().append(articleId)).append(" ")
+					.append(modifications).toString();
+		}
+
+		public void readFields(DataInput dataInput) throws IOException {
+			articleId = WritableUtils.readVLong(dataInput);
+			modifications = WritableUtils.readVLong(dataInput);
+		}
+
+		public void write(DataOutput dataOutput) throws IOException {
+			WritableUtils.writeVLong(dataOutput, articleId);
+			WritableUtils.writeVLong(dataOutput, modifications);
+		}
+
+		public int compareTo(ArticleIdModificationsWritable objKeyPair) {
+			int result = modifications.compareTo(objKeyPair.modifications);
+			if (result == 0) {
+				result = articleId.compareTo(objKeyPair.articleId);
+			}
+			return result;
+		}
+
+		public Long getArticleId() {
+			return articleId;
+		}
+
+		public void setArticleId(Long articleId) {
+			this.articleId = articleId;
+		}
+
+		public Long getModifications() {
+			return modifications;
+		}
+
+		public void setModifications(Long modifications) {
+			this.modifications = modifications;
 		}
 	}
 
@@ -347,17 +438,16 @@ public class BigDataApplication {
 	 * @author kurtp
 	 *
 	 */
-	public static class SecondarySortBasicGroupingComparator extends
-			WritableComparator {
-		protected SecondarySortBasicGroupingComparator() {
-			super(LongWritable.class, true);
+	public static class ArticleIdGroupingComparator extends WritableComparator {
+		protected ArticleIdGroupingComparator() {
+			super(ArticleIdModificationsWritable.class, true);
 		}
 
 		@Override
 		public int compare(WritableComparable w1, WritableComparable w2) {
-			LongWritable key1 = (LongWritable) w1;
-			LongWritable key2 = (LongWritable) w2;
-			return key1.compareTo(key2);
+			ArticleIdModificationsWritable key1 = (ArticleIdModificationsWritable) w1;
+			ArticleIdModificationsWritable key2 = (ArticleIdModificationsWritable) w2;
+			return key1.getArticleId().compareTo(key2.getArticleId());
 		}
 	}
 
@@ -367,7 +457,7 @@ public class BigDataApplication {
 		Configuration conf = new Configuration();
 
 		// assignment final conf
-		// conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
+		// conf.addResource(new Path("bd4_hadoop/"));
 		// String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
 		// String outputLoc = "/user/hadoop/wiki/output";
 
@@ -386,8 +476,8 @@ public class BigDataApplication {
 
 			job = Job.getInstance(conf, "BigData1");
 			job.setReducerClass(Part1Reducer.class);
-		    //job.setCombinerClass(Part1Reducer.class);
 			job.setOutputValueClass(Text.class);
+			job.setGroupingComparatorClass(ArticleIdGroupingComparator.class);
 			break;
 		case 3: // problem 2
 			System.out.println("Task 2");
@@ -398,8 +488,8 @@ public class BigDataApplication {
 
 			job = Job.getInstance(conf, "BigData2");
 			job.setReducerClass(Part2Reducer.class);
-		    //job.setCombinerClass(Part2Reducer.class);
-			job.setOutputValueClass(IntWritable.class);
+			job.setCombinerClass(Part2Combiner.class);
+			job.setOutputValueClass(LongWritable.class);
 			break;
 		case 1: // problem 3
 			System.out.println("Task 3");
@@ -408,8 +498,8 @@ public class BigDataApplication {
 
 			job = Job.getInstance(conf, "BigData3");
 			job.setReducerClass(Part3Reducer.class);
-		    //job.setCombinerClass(Part3Reducer.class);
 			job.setOutputValueClass(Text.class);
+			job.setGroupingComparatorClass(ArticleIdGroupingComparator.class);
 			break;
 		default:
 			System.err.println("minimum 1 argument, maximum 3 arguments");
@@ -419,9 +509,8 @@ public class BigDataApplication {
 
 		job.setJarByClass(BigDataApplication.class);
 		job.setMapperClass(BigDataAssignmentMapper.class);
-		job.setMapOutputKeyClass(LongWritable.class);
+		job.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
 		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
-		job.setGroupingComparatorClass(SecondarySortBasicGroupingComparator.class);
 		job.setOutputKeyClass(LongWritable.class);
 
 		FileInputFormat.addInputPath(job, new Path(inputLoc));
