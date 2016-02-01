@@ -14,6 +14,7 @@ import java.util.TimeZone;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
@@ -232,7 +233,42 @@ public class BigDataApplication {
 
 			Configuration conf = context.getConfiguration();
 			String k = conf.get(BigDataApplication.K);
-			
+
+			context.write(new LongWritable(key.getArticleId()),
+					new LongWritable(key.getModifications()));
+		}
+	}
+
+	public static class BigDataPart2SortMapper extends
+			Mapper<Object, Text, ArticleIdModificationsWritable, NullWritable> {
+
+		public void map(Object key, Text value, Context context)
+				throws IOException, InterruptedException {// read query
+															// parameters
+
+			StringTokenizer words = new StringTokenizer(value.toString());
+
+			// par each word in line
+			while (words.hasMoreTokens()) {
+				String articleId = words.nextToken();
+				String modifications = words.nextToken();
+				context.write(
+						new ArticleIdModificationsWritable(Long
+								.parseLong(articleId), Long
+								.parseLong(modifications)), NullWritable.get());
+
+			}
+
+		}
+	}
+
+	public static class SortPart2Reducer
+			extends
+			Reducer<ArticleIdModificationsWritable, NullWritable, LongWritable, LongWritable> {
+
+		public void reduce(ArticleIdModificationsWritable key,
+				Iterable<NullWritable> values, Context context)
+				throws IOException, InterruptedException {
 			context.write(new LongWritable(key.getArticleId()),
 					new LongWritable(key.getModifications()));
 		}
@@ -432,25 +468,6 @@ public class BigDataApplication {
 		}
 	}
 
-	/**
-	 * Groups Articles together
-	 * 
-	 * @author kurtp
-	 *
-	 */
-	public static class ArticleIdGroupingComparator extends WritableComparator {
-		protected ArticleIdGroupingComparator() {
-			super(ArticleIdModificationsWritable.class, true);
-		}
-
-		@Override
-		public int compare(WritableComparable w1, WritableComparable w2) {
-			ArticleIdModificationsWritable key1 = (ArticleIdModificationsWritable) w1;
-			ArticleIdModificationsWritable key2 = (ArticleIdModificationsWritable) w2;
-			return key1.getArticleId().compareTo(key2.getArticleId());
-		}
-	}
-
 	public static void main(String[] args) throws Exception {
 
 		System.out.println("BigDataApplication Started");
@@ -463,8 +480,10 @@ public class BigDataApplication {
 
 		// localhost stuff
 		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		String inputLoc = "/user/hadoop/wiki/wiki_1428.txt";
-		String outputLoc = "/user/hadoop/wiki/output";
+		String inputLoc = "/user/hadoop/wiki/";
+		String inputFileName = "wiki_1428.txt";
+		String outputLoc = "/user/hadoop/wiki/output/";
+		String outputFileName = "part-r-00000";
 
 		Job job = null;
 		switch (args.length) {
@@ -477,7 +496,6 @@ public class BigDataApplication {
 			job = Job.getInstance(conf, "BigData1");
 			job.setReducerClass(Part1Reducer.class);
 			job.setOutputValueClass(Text.class);
-			job.setGroupingComparatorClass(ArticleIdGroupingComparator.class);
 			break;
 		case 3: // problem 2
 			System.out.println("Task 2");
@@ -499,7 +517,6 @@ public class BigDataApplication {
 			job = Job.getInstance(conf, "BigData3");
 			job.setReducerClass(Part3Reducer.class);
 			job.setOutputValueClass(Text.class);
-			job.setGroupingComparatorClass(ArticleIdGroupingComparator.class);
 			break;
 		default:
 			System.err.println("minimum 1 argument, maximum 3 arguments");
@@ -513,8 +530,35 @@ public class BigDataApplication {
 		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
 		job.setOutputKeyClass(LongWritable.class);
 
-		FileInputFormat.addInputPath(job, new Path(inputLoc));
+		FileInputFormat.addInputPath(job, new Path(inputLoc + inputFileName));
 		FileOutputFormat.setOutputPath(job, new Path(outputLoc));
-		System.exit(job.waitForCompletion(true) ? 0 : 1);
+
+		// waiting for job to finish
+		boolean job1FinishedCorrectly = job.waitForCompletion(true);
+
+		if (job1FinishedCorrectly) {
+			// check if it is problem 2
+			if (args.length == 3) {
+				// start job that does the sorting
+				Job job2 = Job.getInstance(conf, "BigData2Sorting");
+				job2.setReducerClass(SortPart2Reducer.class);
+				job2.setJarByClass(BigDataApplication.class);
+				job2.setMapperClass(BigDataPart2SortMapper.class);
+				job2.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
+				job2.setMapOutputValueClass(NullWritable.class);
+				job2.setOutputKeyClass(LongWritable.class);
+				job2.setOutputValueClass(LongWritable.class);
+
+				FileInputFormat.addInputPath(job2, new Path(outputLoc
+						+ outputFileName));
+				FileOutputFormat.setOutputPath(job2, new Path(inputLoc
+						+ "sortedOutput/"));
+				// wait for sorting to finish
+				System.exit(job2.waitForCompletion(true) ? 0 : 1);
+
+			}
+			System.exit(0);
+		}
+		System.exit(1);
 	}
 }
