@@ -35,10 +35,10 @@ public class BigDataApplication {
 
 	public static final String K = "K";
 
-	public static final int RECORD_LENGTH = 14;
-
-	public static final int RECORDS_PER_MAPPER = 3000;
-
+	/**
+	 * Gathers revision information from records
+	 * @author kurtp
+	 */
 	public static class BigDataAssignmentMapper
 			extends
 			Mapper<Object, Text, CompositeKeyWritable, RevisionTimeStampWritable> {
@@ -77,7 +77,11 @@ public class BigDataApplication {
 				}
 			}
 		}
-
+		
+		/**
+		 * Writes revision if it passes validation and time interval test
+		 * @author kurtp
+		 */
 		public void mapRevision(Revision r, Date dateTo, Date dateFrom,
 				Context context) throws IOException, InterruptedException {
 
@@ -97,7 +101,11 @@ public class BigDataApplication {
 				System.out.println("Invalid Revision .. " + r.getRevisionId());
 			}
 		}
-
+		
+		/**
+		 * Revision class
+		 * @author kurtp
+		 */
 		private class Revision {
 
 			// article_id,revision_id,article title, timeStamp, ipUsername,
@@ -141,7 +149,12 @@ public class BigDataApplication {
 		}
 
 	}
-
+	
+	/**
+	 * Receives Articles with different revisions and timestamps. Sorts the revisions in this time interval
+	 * @author kurtp
+	 *
+	 */
 	public static class Part1Reducer
 			extends
 			Reducer<CompositeKeyWritable, RevisionTimeStampWritable, LongWritable, Text> {
@@ -166,7 +179,12 @@ public class BigDataApplication {
 					revisions.size() + " " + sb.toString()));
 		}
 	}
-
+	
+	/**
+	 * Receives Articles with different revisions and timestamps. Adds up the total number of modifications
+	 * @author kurtp
+	 *
+	 */
 	public static class Part2Reducer
 			extends
 			Reducer<CompositeKeyWritable, RevisionTimeStampWritable, LongWritable, IntWritable> {
@@ -187,6 +205,11 @@ public class BigDataApplication {
 		}
 	}
 
+	/**
+	 * Receives Articles with different revisions and timestamps. Lists the revisions current at a point in time.
+	 * @author kurtp
+	 *
+	 */
 	public static class Part3Reducer
 			extends
 			Reducer<CompositeKeyWritable, RevisionTimeStampWritable, LongWritable, Text> {
@@ -227,13 +250,21 @@ public class BigDataApplication {
 					revisionId + " " + timeStampResult));
 		}
 	}
-
+	
+	/**
+	 * Random Tools
+	 * @author kurtp
+	 *
+	 */
 	public static class Tools {
 
 		private Tools() {
 
 		}
-
+		/**
+		 * Convert WikiString to Date
+		 *
+		 */
 		public static Date getDateFromWikiString(String wikiText)
 				throws ParseException {
 			if (wikiText == null) {
@@ -244,7 +275,12 @@ public class BigDataApplication {
 			return df.parse(wikiText.replace("T", " ").replace("Z", ""));
 		}
 	}
-
+	
+	/**
+	 * Output Mapper object containing revision Id and TimeStamp
+	 * @author kurtp
+	 *
+	 */
 	public static class RevisionTimeStampWritable implements Writable,
 			WritableComparable<CompositeKeyWritable> {
 
@@ -297,6 +333,11 @@ public class BigDataApplication {
 		}
 	}
 
+	/**
+	 * Article Id writable
+	 * @author kurtp
+	 *
+	 */
 	public static class CompositeKeyWritable implements Writable,
 			WritableComparable<CompositeKeyWritable> {
 
@@ -336,6 +377,11 @@ public class BigDataApplication {
 		}
 	}
 
+	/**
+	 * Partitioins articles to the same reducers
+	 * @author kurtp
+	 *
+	 */
 	public static class SecondarySortBasicPartitioner extends
 			Partitioner<CompositeKeyWritable, Text> {
 
@@ -346,7 +392,13 @@ public class BigDataApplication {
 			return (key.getArticleId().hashCode() % numReduceTasks);
 		}
 	}
-
+	
+	/**
+	 * Is able to sort other fields apart from articleId
+	 * Currently not used
+	 * @author kurtp
+	 *
+	 */
 	public static class SecondarySortBasicCompKeySortComparator extends
 			WritableComparator {
 
@@ -364,6 +416,11 @@ public class BigDataApplication {
 		}
 	}
 
+	/**
+	 * Groups Articles together
+	 * @author kurtp
+	 *
+	 */
 	public static class SecondarySortBasicGroupingComparator extends
 			WritableComparator {
 		protected SecondarySortBasicGroupingComparator() {
@@ -390,72 +447,49 @@ public class BigDataApplication {
 		Job job = null;
 		switch (args.length) {
 		case 2: // problem 1
-			System.out.println("Prob 1");
+			System.out.println("Task 1");
 
 			conf.set(BigDataApplication.DATE_FROM, args[0]);
 			conf.set(BigDataApplication.DATE_TO, args[1]);
 
-			job = Job.getInstance(conf, "BigData1");
-			job.setJarByClass(BigDataApplication.class);
-
-			job.setMapperClass(BigDataAssignmentMapper.class);
-			job.setMapOutputKeyClass(CompositeKeyWritable.class);
-			job.setMapOutputValueClass(RevisionTimeStampWritable.class);
-			job.setPartitionerClass(SecondarySortBasicPartitioner.class);
-			job.setSortComparatorClass(SecondarySortBasicCompKeySortComparator.class);
-			job.setGroupingComparatorClass(SecondarySortBasicGroupingComparator.class);
+			job = Job.getInstance(conf, "BigData1");			
 			job.setReducerClass(Part1Reducer.class);
-
-			job.setOutputKeyClass(LongWritable.class);
 			job.setOutputValueClass(Text.class);
-
 			break;
 		case 3: // problem 2
-			System.out.println("Prob 2");
+			System.out.println("Task 2");
 
 			conf.set(BigDataApplication.DATE_FROM, args[0]);
 			conf.set(BigDataApplication.DATE_TO, args[1]);
 			conf.set(BigDataApplication.K, args[2]);
 
 			job = Job.getInstance(conf, "BigData2");
-			job.setJarByClass(BigDataApplication.class);
-
-			job.setMapperClass(BigDataAssignmentMapper.class);
-			job.setMapOutputKeyClass(CompositeKeyWritable.class);
-			job.setMapOutputValueClass(RevisionTimeStampWritable.class);
-			job.setPartitionerClass(SecondarySortBasicPartitioner.class);
-			job.setSortComparatorClass(SecondarySortBasicCompKeySortComparator.class);
-			job.setGroupingComparatorClass(SecondarySortBasicGroupingComparator.class);
 			job.setReducerClass(Part2Reducer.class);
-
-			job.setOutputKeyClass(LongWritable.class);
 			job.setOutputValueClass(IntWritable.class);
 			break;
 		case 1: // problem 3
-			System.out.println("Prob 3");
+			System.out.println("Task 3");
 
 			conf.set(BigDataApplication.DATE_TO, args[0]);
 
 			job = Job.getInstance(conf, "BigData3");
-			job.setJarByClass(BigDataApplication.class);
-
-			job.setMapperClass(BigDataAssignmentMapper.class);
-			job.setMapOutputKeyClass(CompositeKeyWritable.class);
-			job.setMapOutputValueClass(RevisionTimeStampWritable.class);
-			job.setPartitionerClass(SecondarySortBasicPartitioner.class);
-			job.setSortComparatorClass(SecondarySortBasicCompKeySortComparator.class);
-			job.setGroupingComparatorClass(SecondarySortBasicGroupingComparator.class);
 			job.setReducerClass(Part3Reducer.class);
-
-			job.setOutputKeyClass(LongWritable.class);
 			job.setOutputValueClass(Text.class);
-
 			break;
 		default:
 			System.err.println("minimum 1 argument, maximum 3 arguments");
 			System.exit(-1);
 			break;
 		}
+
+		job.setJarByClass(BigDataApplication.class);
+		job.setMapperClass(BigDataAssignmentMapper.class);
+		job.setMapOutputKeyClass(CompositeKeyWritable.class);
+		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
+		job.setPartitionerClass(SecondarySortBasicPartitioner.class);
+		job.setSortComparatorClass(SecondarySortBasicCompKeySortComparator.class);
+		job.setGroupingComparatorClass(SecondarySortBasicGroupingComparator.class);
+		job.setOutputKeyClass(LongWritable.class);
 
 		FileInputFormat.addInputPath(job, new Path(inputLoc));
 		FileOutputFormat.setOutputPath(job, new Path(outputLoc));
