@@ -63,37 +63,61 @@ public class BigDataApplication {
 				e.printStackTrace();
 			}
 
-			StringTokenizer words = new StringTokenizer(value.toString());
+			StringTokenizer lines = new StringTokenizer(value.toString(),
+					"\n\r\f");
+			while (lines.hasMoreTokens()) {
+				String line = lines.nextToken();
+				StringTokenizer words = new StringTokenizer(line.toString(),
+						" \t");
+				//String[] words = line.split(" ");
 
-			// par each word in line
-			while (words.hasMoreTokens()) {
-				String word = words.nextToken();
-				if ("REVISION".equals(word)) {
+				// par each word in line
+				while (words.hasMoreTokens()) {
+					String word = words.nextToken();
+					if ("REVISION".equals(word)) {
 
-					// populate revision
-					String articleId = words.nextToken();
-					String revisionId = words.nextToken();
-					String articleTitle = words.nextToken();
-					String timeStamp = words.nextToken();
+						// populate revision
+						String articleId = null;
+						String revisionId = null;
+						String articleTitle = null;
+						String timeStamp = null;
+						try {
+							if (words.hasMoreTokens()) {
+								articleId = words.nextToken();
+								if (!articleId.equals("*/")
+										&& words.hasMoreTokens()) {
 
-					Date timeStampDate;
-					try {
-						timeStampDate = Tools.getDateFromWikiString(timeStamp);
-					} catch (ParseException e) {
-						e.printStackTrace();
-						timeStampDate = new Date();
+									revisionId = words.nextToken();
+									articleTitle = words.nextToken();
+									timeStamp = words.nextToken();
+
+									Date timeStampDate;
+									try {
+										timeStampDate = Tools
+												.getDateFromWikiString(timeStamp);
+									} catch (ParseException e) {
+										e.printStackTrace();
+										timeStampDate = new Date();
+									}
+
+									if (timeStampDate.before(dateTo)
+											&& (dateFrom == null || timeStampDate
+													.after(dateFrom))) {
+										context.write(
+												new ArticleIdModificationsWritable(
+														Long.parseLong(articleId),
+														1),
+												new RevisionTimeStampWritable(
+														Long.parseLong(revisionId),
+														timeStamp));
+									}
+								}
+							}
+						} catch (Exception e) {
+							throw new IOException("Line: " + line);
+						}
+
 					}
-
-					if (timeStampDate.before(dateTo)
-							&& (dateFrom == null || timeStampDate
-									.after(dateFrom))) {
-						context.write(
-								new ArticleIdModificationsWritable(Long
-										.parseLong(articleId), 1),
-								new RevisionTimeStampWritable(Long
-										.parseLong(revisionId), timeStamp));
-					}
-
 				}
 			}
 		}
@@ -416,23 +440,23 @@ public class BigDataApplication {
 		Configuration conf = new Configuration();
 
 		// assignment final conf
-		//conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
-		//conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
-		//String inputLoc = "/user/bd4-ae1/";
-		//String inputFileName = "enwiki-20080103-full.txt";
-		//String outputLoc = "/user/2222148p/output";
+		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
+		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
+		String inputLoc = "/user/bd4-ae1/";
+		String inputFileName = "enwiki-20080103-full.txt";
+		String outputLoc = "/user/2222148p/output";
 
 		// localhost stuff
-		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		String inputLoc = "/user/hadoop/wiki/";
-		String inputFileName = "wiki_1428.txt";
-		String outputLoc = "/user/hadoop/wiki/output/";
+		// conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
+		// String inputLoc = "/user/hadoop/wiki/";
+		// String inputFileName = "wiki_1428.txt";
+		// String outputLoc = "/user/hadoop/wiki/output/";
 
 		String outputFileName = "part-r-00000";
 
 		int linesPerMapper = BigDataApplication.RECORD_LENGTH
 				* BigDataApplication.RECORDS_PER_MAPPER;
-		//conf.setInt("mapreduce.input.lineinputformat.linespermap",linesPerMapper);
+		// conf.setInt("mapreduce.input.lineinputformat.linespermap",linesPerMapper);
 
 		Job job = null;
 		switch (args.length) {
@@ -478,7 +502,7 @@ public class BigDataApplication {
 		job.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
 		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
 		job.setOutputKeyClass(LongWritable.class);
-		//job.setInputFormatClass(MultiLineInputFormat.class);
+		// job.setInputFormatClass(MultiLineInputFormat.class);
 		job.setInputFormatClass(TextInputFormat.class);
 
 		FileInputFormat.addInputPath(job, new Path(inputLoc + inputFileName));
