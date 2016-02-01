@@ -10,6 +10,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
+import java.util.TreeMap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -33,6 +34,7 @@ public class BigDataApplication {
 	public static final String DATE_TO = "DATE_TO";
 
 	public static final String K = "K";
+
 	/**
 	 * Gathers revision information from records
 	 * 
@@ -185,10 +187,17 @@ public class BigDataApplication {
 	}
 
 	public static class BigDataPart2SortMapper extends
-			Mapper<Object, Text, ArticleIdModificationsWritable, NullWritable> {
+			Mapper<Object, Text, NullWritable, Text> {
 
+		// Our output key and value Writables
+		private TreeMap<Integer, Text> repToRecordMap = new TreeMap<Integer, Text>();
+
+		@Override
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
+
+			Configuration conf = context.getConfiguration();
+			long k = Long.parseLong(conf.get(BigDataApplication.K));
 
 			StringTokenizer words = new StringTokenizer(value.toString());
 
@@ -196,28 +205,53 @@ public class BigDataApplication {
 			while (words.hasMoreTokens()) {
 				String articleId = words.nextToken();
 				String modifications = words.nextToken();
-				context.write(
-						new ArticleIdModificationsWritable(Long
-								.parseLong(articleId), Long
-								.parseLong(modifications)), NullWritable.get());
-			}
 
+				repToRecordMap.put(Integer.parseInt(modifications), new Text(
+						articleId + " " + modifications));
+
+				if (repToRecordMap.size() > k) {
+					repToRecordMap.remove(repToRecordMap.firstKey());
+				}
+			}
+		}
+
+		@Override
+		protected void cleanup(Context context) throws IOException,
+				InterruptedException {
+			for (Text t : repToRecordMap.values()) {
+				context.write(NullWritable.get(), t);
+			}
 		}
 	}
 
-	public static class SortPart2Reducer
-			extends
-			Reducer<ArticleIdModificationsWritable, NullWritable, LongWritable, LongWritable> {
+	public static class SortPart2Reducer extends
+			Reducer<NullWritable, Text, NullWritable, Text> {
 
-		public void reduce(ArticleIdModificationsWritable key,
-				Iterable<NullWritable> values, Context context)
-				throws IOException, InterruptedException {
+		private TreeMap<Integer, Text> repToRecordMap = new TreeMap<Integer, Text>();
+
+		public void reduce(NullWritable key, Iterable<Text> values,
+				Context context) throws IOException, InterruptedException {
 
 			Configuration conf = context.getConfiguration();
 			long k = Long.parseLong(conf.get(BigDataApplication.K));
 
-			context.write(new LongWritable(key.getArticleId()),
-					new LongWritable(key.getModifications()));
+			for (Text value : values) {
+
+				StringTokenizer words = new StringTokenizer(value.toString());
+				String articleId = words.nextToken();
+				String modifications = words.nextToken();
+
+				repToRecordMap.put(Integer.parseInt(modifications), new Text(
+						articleId + " " + modifications));
+
+				if (repToRecordMap.size() > k) {
+					repToRecordMap.remove(repToRecordMap.firstKey());
+				}
+			}
+
+			for (Text t : repToRecordMap.descendingMap().values()) {
+				context.write(NullWritable.get(), t);
+			}
 		}
 	}
 
@@ -497,10 +531,10 @@ public class BigDataApplication {
 				job2.setReducerClass(SortPart2Reducer.class);
 				job2.setJarByClass(BigDataApplication.class);
 				job2.setMapperClass(BigDataPart2SortMapper.class);
-				job2.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
-				job2.setMapOutputValueClass(NullWritable.class);
-				job2.setOutputKeyClass(LongWritable.class);
-				job2.setOutputValueClass(LongWritable.class);
+				job2.setMapOutputKeyClass(NullWritable.class);
+				job2.setMapOutputValueClass(Text.class);
+				job2.setOutputKeyClass(NullWritable.class);
+				job2.setOutputValueClass(Text.class);
 				job2.setInputFormatClass(TextInputFormat.class);
 				job2.setNumReduceTasks(1);
 
