@@ -5,6 +5,7 @@ import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -18,7 +19,6 @@ import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
-import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
@@ -125,8 +125,13 @@ public class BigDataApplication {
 			}
 
 			public void setRevisionFields(String value) {
-				revisionField[revCount] = value;
-				revCount++;
+				try {
+					revisionField[revCount] = value;
+					revCount++;
+				} catch (ArrayIndexOutOfBoundsException e) {
+					System.out.println("Error adding: " + value + " to: "
+							+ Arrays.toString(revisionField));
+				}
 			}
 
 			public Long getArticleId() {
@@ -200,9 +205,6 @@ public class BigDataApplication {
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 
-			Configuration conf = context.getConfiguration();
-			String k = conf.get(BigDataApplication.K);
-
 			int sum = 0;
 			Long latestRevision = 0L;
 			for (RevisionTimeStampWritable value : values) {
@@ -231,9 +233,6 @@ public class BigDataApplication {
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
 
-			Configuration conf = context.getConfiguration();
-			String k = conf.get(BigDataApplication.K);
-
 			context.write(new LongWritable(key.getArticleId()),
 					new LongWritable(key.getModifications()));
 		}
@@ -243,8 +242,10 @@ public class BigDataApplication {
 			Mapper<Object, Text, ArticleIdModificationsWritable, NullWritable> {
 
 		public void map(Object key, Text value, Context context)
-				throws IOException, InterruptedException {// read query
-															// parameters
+				throws IOException, InterruptedException {
+
+			Configuration conf = context.getConfiguration();
+			String k = conf.get(BigDataApplication.K);
 
 			StringTokenizer words = new StringTokenizer(value.toString());
 
@@ -256,7 +257,6 @@ public class BigDataApplication {
 						new ArticleIdModificationsWritable(Long
 								.parseLong(articleId), Long
 								.parseLong(modifications)), NullWritable.get());
-
 			}
 
 		}
@@ -474,15 +474,18 @@ public class BigDataApplication {
 		Configuration conf = new Configuration();
 
 		// assignment final conf
-		// conf.addResource(new Path("bd4_hadoop/"));
-		// String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
-		// String outputLoc = "/user/hadoop/wiki/output";
+		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
+		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
+		String inputLoc = "/user/bd4-ae1/";
+		String inputFileName = "enwiki-20080103-full.txt";
+		String outputLoc = "/user/2222148p/output";
 
 		// localhost stuff
-		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		String inputLoc = "/user/hadoop/wiki/";
-		String inputFileName = "wiki_1428.txt";
-		String outputLoc = "/user/hadoop/wiki/output/";
+		// conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
+		// String inputLoc = "/user/hadoop/wiki/";
+		// String inputFileName = "wiki_1428.txt";
+		// String outputLoc = "/user/hadoop/wiki/output/";
+
 		String outputFileName = "part-r-00000";
 
 		Job job = null;
