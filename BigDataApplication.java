@@ -186,6 +186,13 @@ public class BigDataApplication {
 		}
 	}
 
+	/**
+	 * Extracts the modifications and articles to send them to the reducers for
+	 * sorting keeping only the highest K
+	 * 
+	 * @author cloudera
+	 *
+	 */
 	public static class BigDataPart2SortMapper extends
 			Mapper<Object, Text, NullWritable, Text> {
 
@@ -224,6 +231,13 @@ public class BigDataApplication {
 		}
 	}
 
+	/**
+	 * Sorts articles according to the number of modifications keeping only the
+	 * highest K
+	 * 
+	 * @author cloudera
+	 *
+	 */
 	public static class SortPart2Reducer extends
 			Reducer<NullWritable, Text, NullWritable, Text> {
 
