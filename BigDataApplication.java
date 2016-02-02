@@ -70,34 +70,26 @@ public class BigDataApplication {
 				if ("REVISION".equals(words[0])) {
 
 					// populate revision
-					String articleId = null;
-					String revisionId = null;
-					String timeStamp = null;
+					String articleId = words[1];
+					String revisionId = words[2];
+					String timeStamp = words[4];
+
+					Date timeStampDate;
 					try {
-						articleId = words[1];
-						revisionId = words[2];
-						timeStamp = words[4];
+						timeStampDate = Tools.getDateFromWikiString(timeStamp);
+					} catch (ParseException e) {
+						e.printStackTrace();
+						timeStampDate = new Date();
+					}
 
-						Date timeStampDate;
-						try {
-							timeStampDate = Tools
-									.getDateFromWikiString(timeStamp);
-						} catch (ParseException e) {
-							e.printStackTrace();
-							timeStampDate = new Date();
-						}
-
-						if (timeStampDate.before(dateTo)
-								&& (dateFrom == null || timeStampDate
-										.after(dateFrom))) {
-							context.write(
-									new ArticleIdModificationsWritable(Long
-											.parseLong(articleId), 1),
-									new RevisionTimeStampWritable(Long
-											.parseLong(revisionId), timeStamp));
-						}
-					} catch (Exception e) {
-						throw new IOException("Line: " + line);
+					if (timeStampDate.before(dateTo)
+							&& (dateFrom == null || timeStampDate
+									.after(dateFrom))) {
+						context.write(
+								new ArticleIdModificationsWritable(Long
+										.parseLong(articleId), 1),
+								new RevisionTimeStampWritable(Long
+										.parseLong(revisionId), timeStamp));
 					}
 
 				}
