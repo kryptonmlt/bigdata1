@@ -13,7 +13,10 @@ import java.util.TimeZone;
 import java.util.TreeMap;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
@@ -36,13 +39,12 @@ public class BigDataApplication {
 	public static final String K = "K";
 
 	/**
-	 * Gathers revision information from records
+	 * Gathers revision information from records for task1
 	 * 
 	 * @author kurtp
 	 */
-	public static class BigDataAssignmentMapper
-			extends
-			Mapper<Object, Text, ArticleIdModificationsWritable, RevisionTimeStampWritable> {
+	public static class Task1Mapper extends
+			Mapper<Object, Text, LongWritable, LongWritable> {
 
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
@@ -83,11 +85,94 @@ public class BigDataApplication {
 					}
 
 					if (timeStampDate.before(dateTo)
-							&& (dateFrom == null || timeStampDate
-									.after(dateFrom))) {
+							&& timeStampDate.after(dateFrom)) {
 						context.write(
-								new ArticleIdModificationsWritable(Long
-										.parseLong(articleId), 1),
+								new LongWritable(Long.parseLong(articleId)),
+								new LongWritable(Long.parseLong(revisionId)));
+					}
+
+				}
+			}
+		}
+
+	}
+
+	/**
+	 * Receives Articles with different revisions and timestamps. Sorts the
+	 * revisions in this time interval
+	 * 
+	 * @author kurtp
+	 *
+	 */
+	public static class Task1Reducer extends
+			Reducer<LongWritable, LongWritable, LongWritable, Text> {
+
+		public void reduce(LongWritable key, Iterable<LongWritable> values,
+				Context context) throws IOException, InterruptedException {
+
+			List<Long> revisions = new ArrayList<Long>();
+			for (LongWritable value : values) {
+				revisions.add(value.get());
+			}
+			Collections.sort(revisions);
+			StringBuilder sb = new StringBuilder();
+			for (int i = 0; i < revisions.size(); i++) {
+				if (i == revisions.size()) {
+					sb.append(revisions.get(i));
+				} else {
+					sb.append(revisions.get(i)).append(" ");
+				}
+			}
+			context.write(key, new Text(revisions.size() + " " + sb.toString()));
+		}
+	}
+
+	/**
+	 * Gathers revision information from records for task1
+	 * 
+	 * @author kurtp
+	 */
+	public static class Task3Mapper extends
+			Mapper<Object, Text, LongWritable, RevisionTimeStampWritable> {
+
+		public void map(Object key, Text value, Context context)
+				throws IOException, InterruptedException {
+
+			// read query parameters
+			Configuration conf = context.getConfiguration();
+			Date dateTo = null;
+			try {
+				dateTo = Tools.getDateFromWikiString(conf
+						.get(BigDataApplication.DATE_TO));
+			} catch (ParseException e) {
+				e.printStackTrace();
+			}
+
+			StringTokenizer lines = new StringTokenizer(value.toString(),
+					"\n\r\f");
+			while (lines.hasMoreTokens()) {
+				String line = lines.nextToken();
+				String[] words = line.split(" ");
+
+				// par each word in line
+				if ("REVISION".equals(words[0])) {
+
+					// populate revision
+					String articleId = words[1];
+					String revisionId = words[2];
+					String timeStamp = words[4];
+
+					Date timeStampDate;
+					try {
+						timeStampDate = Tools.getDateFromWikiString(timeStamp);
+					} catch (ParseException e) {
+						e.printStackTrace();
+						timeStampDate = new Date();
+					}
+
+					if (timeStampDate.before(dateTo)) {
+						context.write(
+								new LongWritable(Long.parseLong(articleId)),
 								new RevisionTimeStampWritable(Long
 										.parseLong(revisionId), timeStamp));
 					}
@@ -105,28 +190,92 @@ public class BigDataApplication {
 	 * @author kurtp
 	 *
 	 */
-	public static class Part1Reducer
+	public static class Task3Reducer
 			extends
-			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, LongWritable, Text> {
+			Reducer<LongWritable, RevisionTimeStampWritable, LongWritable, Text> {
 
-		public void reduce(ArticleIdModificationsWritable key,
+		public void reduce(LongWritable key,
 				Iterable<RevisionTimeStampWritable> values, Context context)
 				throws IOException, InterruptedException {
-			List<Long> revisions = new ArrayList<Long>();
-			for (RevisionTimeStampWritable value : values) {
-				revisions.add(value.getRevisionId());
+
+			Date latestDate = null;
+			Long revisionId = null;
+			String timeStampResult = "";
+			try {
+				for (RevisionTimeStampWritable value : values) {
+					Date revTime = Tools.getDateFromWikiString(value
+							.getTimeStamp());
+					if (latestDate == null) {
+						latestDate = revTime;
+						timeStampResult = value.getTimeStamp();
+						revisionId = value.getRevisionId();
+					} else if (revTime.after(latestDate)) {
+						latestDate = revTime;
+						timeStampResult = value.getTimeStamp();
+						revisionId = value.getRevisionId();
+					}
+				}
+			} catch (ParseException e) {
+				e.printStackTrace();
 			}
-			Collections.sort(revisions);
-			StringBuilder sb = new StringBuilder();
-			for (int i = 0; i < revisions.size(); i++) {
-				if (i == revisions.size()) {
-					sb.append(revisions.get(i));
-				} else {
-					sb.append(revisions.get(i)).append(" ");
+			context.write(key, new Text(revisionId + " " + timeStampResult));
+		}
+	}
+
+	/**
+	 * Gathers revision information from records
+	 * 
+	 * @author kurtp
+	 */
+	public static class Task2Mapper extends
+			Mapper<Object, Text, LongWritable, IntWritable> {
+
+		public void map(Object key, Text value, Context context)
+				throws IOException, InterruptedException {
+
+			// read query parameters
+			Configuration conf = context.getConfiguration();
+			Date dateFrom = null;
+			Date dateTo = null;
+			try {
+				dateFrom = Tools.getDateFromWikiString(conf
+						.get(BigDataApplication.DATE_FROM));
+				dateTo = Tools.getDateFromWikiString(conf
+						.get(BigDataApplication.DATE_TO));
+			} catch (ParseException e) {
+				e.printStackTrace();
+			}
+
+			StringTokenizer lines = new StringTokenizer(value.toString(),
+					"\n\r\f");
+			while (lines.hasMoreTokens()) {
+				String line = lines.nextToken();
+				String[] words = line.split(" ");
+
+				// par each word in line
+				if ("REVISION".equals(words[0])) {
+
+					// populate revision
+					String articleId = words[1];
+					String timeStamp = words[4];
+
+					Date timeStampDate;
+					try {
+						timeStampDate = Tools.getDateFromWikiString(timeStamp);
+					} catch (ParseException e) {
+						e.printStackTrace();
+						timeStampDate = new Date();
+					}
+
+					if (timeStampDate.before(dateTo)
+							&& timeStampDate.after(dateFrom)) {
+						context.write(
+								new LongWritable(Long.parseLong(articleId)),
+								new IntWritable(1));
+					}
+
 				}
 			}
-			context.write(new LongWritable(key.getArticleId()), new Text(
-					revisions.size() + " " + sb.toString()));
 		}
 	}
 
@@ -137,24 +286,18 @@ public class BigDataApplication {
 	 * @author kurtp
 	 *
 	 */
-	public static class Part2Combiner
-			extends
-			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, ArticleIdModificationsWritable, RevisionTimeStampWritable> {
+	public static class Task2Combiner extends
+			Reducer<LongWritable, IntWritable, LongWritable, IntWritable> {
 
-		public void reduce(ArticleIdModificationsWritable key,
-				Iterable<RevisionTimeStampWritable> values, Context context)
-				throws IOException, InterruptedException {
+		public void reduce(LongWritable key, Iterable<IntWritable> values,
+				Context context) throws IOException, InterruptedException {
 
 			int sum = 0;
-			Long latestRevision = 0L;
-			for (RevisionTimeStampWritable value : values) {
-				sum++;
-				latestRevision = value.getRevisionId();
+			for (IntWritable value : values) {
+				sum += value.get();
 			}
 
-			context.write(new ArticleIdModificationsWritable(
-					key.getArticleId(), sum), new RevisionTimeStampWritable(
-					latestRevision.longValue(), ""));
+			context.write(key, new IntWritable(sum));
 		}
 	}
 
@@ -165,16 +308,16 @@ public class BigDataApplication {
 	 * @author kurtp
 	 *
 	 */
-	public static class Part2Reducer
-			extends
-			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, LongWritable, LongWritable> {
+	public static class Task2Reducer extends
+			Reducer<LongWritable, IntWritable, LongWritable, IntWritable> {
 
-		public void reduce(ArticleIdModificationsWritable key,
-				Iterable<RevisionTimeStampWritable> values, Context context)
-				throws IOException, InterruptedException {
-
-			context.write(new LongWritable(key.getArticleId()),
-					new LongWritable(key.getModifications()));
+		public void reduce(LongWritable key, Iterable<IntWritable> values,
+				Context context) throws IOException, InterruptedException {
+			int sum = 0;
+			for (IntWritable value : values) {
+				sum += value.get();
+			}
+			context.write(key, new IntWritable(sum));
 		}
 	}
 
@@ -185,7 +328,7 @@ public class BigDataApplication {
 	 * @author cloudera
 	 *
 	 */
-	public static class BigDataPart2SortMapper extends
+	public static class Task2SortMapper extends
 			Mapper<Object, Text, NullWritable, Text> {
 
 		// Our output key and value Writables
@@ -230,7 +373,7 @@ public class BigDataApplication {
 	 * @author cloudera
 	 *
 	 */
-	public static class SortPart2Reducer extends
+	public static class Task2SortReducer extends
 			Reducer<NullWritable, Text, NullWritable, Text> {
 
 		private TreeMap<Integer, Text> repToRecordMap = new TreeMap<Integer, Text>();
@@ -262,54 +405,6 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Receives Articles with different revisions and timestamps. Lists the
-	 * revisions current at a point in time.
-	 * 
-	 * @author kurtp
-	 *
-	 */
-	public static class Part3Reducer
-			extends
-			Reducer<ArticleIdModificationsWritable, RevisionTimeStampWritable, LongWritable, Text> {
-
-		public void reduce(ArticleIdModificationsWritable key,
-				Iterable<RevisionTimeStampWritable> values, Context context)
-				throws IOException, InterruptedException {
-
-			Configuration conf = context.getConfiguration();
-			Date dateTo = null;
-
-			Date latestDate = null;
-			Long revisionId = null;
-			String timeStampResult = "";
-			try {
-				dateTo = Tools.getDateFromWikiString(conf
-						.get(BigDataApplication.DATE_TO));
-
-				for (RevisionTimeStampWritable value : values) {
-					Date revTime = Tools.getDateFromWikiString(value
-							.getTimeStamp());
-					if (revTime.before(dateTo)) {
-						if (latestDate == null) {
-							latestDate = revTime;
-							timeStampResult = value.getTimeStamp();
-							revisionId = value.getRevisionId();
-						} else if (revTime.after(latestDate)) {
-							latestDate = revTime;
-							timeStampResult = value.getTimeStamp();
-							revisionId = value.getRevisionId();
-						}
-					}
-				}
-			} catch (ParseException e) {
-				e.printStackTrace();
-			}
-			context.write(new LongWritable(key.getArticleId()), new Text(
-					revisionId + " " + timeStampResult));
-		}
-	}
-
-	/**
 	 * Random Tools
 	 * 
 	 * @author kurtp
@@ -330,70 +425,9 @@ public class BigDataApplication {
 			if (wikiText == null) {
 				return null;
 			}
-			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 			df.setTimeZone(TimeZone.getTimeZone("UTC"));
 			return df.parse(wikiText.replace("T", " ").replace("Z", ""));
-		}
-	}
-
-	/**
-	 * Output Key Mapper object containing article Id and modifications
-	 * 
-	 * @author kurtp
-	 *
-	 */
-	public static class ArticleIdModificationsWritable implements Writable,
-			WritableComparable<ArticleIdModificationsWritable> {
-
-		private Long articleId;
-		private Long modifications;
-
-		public ArticleIdModificationsWritable() {
-		}
-
-		public ArticleIdModificationsWritable(long articleId, long modifications) {
-			this.articleId = articleId;
-			this.modifications = modifications;
-		}
-
-		@Override
-		public String toString() {
-			return (new StringBuilder().append(articleId)).append(" ")
-					.append(modifications).toString();
-		}
-
-		public void readFields(DataInput dataInput) throws IOException {
-			articleId = WritableUtils.readVLong(dataInput);
-			modifications = WritableUtils.readVLong(dataInput);
-		}
-
-		public void write(DataOutput dataOutput) throws IOException {
-			WritableUtils.writeVLong(dataOutput, articleId);
-			WritableUtils.writeVLong(dataOutput, modifications);
-		}
-
-		public int compareTo(ArticleIdModificationsWritable objKeyPair) {
-			int result = modifications.compareTo(objKeyPair.modifications);
-			if (result == 0) {
-				result = articleId.compareTo(objKeyPair.articleId);
-			}
-			return result;
-		}
-
-		public Long getArticleId() {
-			return articleId;
-		}
-
-		public void setArticleId(Long articleId) {
-			this.articleId = articleId;
-		}
-
-		public Long getModifications() {
-			return modifications;
-		}
-
-		public void setModifications(Long modifications) {
-			this.modifications = modifications;
 		}
 	}
 
@@ -461,17 +495,25 @@ public class BigDataApplication {
 		Configuration conf = new Configuration();
 
 		// assignment final conf
-		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
-		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
-		String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
-		String outputLoc = "/user/2222148p/output";
-		String tempLoc = "/user/2222148p/temp";
+		// String hdfs_home = "/user/2222148p/";
+		// conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
+		// conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
+		// String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
+		// String outputLoc = hdfs_home + "output";
+		// String tempLoc = hdfs_home + "temp";
+
+		/*
+		 * conf.setBoolean("mapred.compress.map.output", true);
+		 * conf.setClass("mapred.map.output.compression.codec", GzipCodec.class,
+		 * CompressionCodec.class);
+		 */
 
 		// localhost stuff
-		// conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		// String inputLoc = "/user/hadoop/wiki/wiki_1428.txt";
-		// String outputLoc = "/user/hadoop/wiki/output/";
-		// String tempLoc = "/user/hadoop/wiki/temp/";
+		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
+		String hdfs_home = "/user/hadoop/wiki/";
+		String inputLoc = hdfs_home + "wiki_1428.txt";
+		String outputLoc = hdfs_home + "output/";
+		String tempLoc = hdfs_home + "temp/";
 
 		Job job = null;
 		switch (args.length) {
@@ -482,7 +524,12 @@ public class BigDataApplication {
 			conf.set(BigDataApplication.DATE_TO, args[1]);
 
 			job = Job.getInstance(conf, "BigData1");
-			job.setReducerClass(Part1Reducer.class);
+
+			job.setMapperClass(Task1Mapper.class);
+			job.setMapOutputKeyClass(LongWritable.class);
+			job.setMapOutputValueClass(LongWritable.class);
+
+			job.setReducerClass(Task1Reducer.class);
 			job.setOutputValueClass(Text.class);
 			break;
 		case 3: // problem 2
@@ -493,9 +540,18 @@ public class BigDataApplication {
 			conf.set(BigDataApplication.K, args[2]);
 
 			job = Job.getInstance(conf, "BigData2");
-			job.setReducerClass(Part2Reducer.class);
-			job.setCombinerClass(Part2Combiner.class);
-			job.setOutputValueClass(LongWritable.class);
+
+			job.setMapperClass(Task2Mapper.class);
+			job.setMapOutputKeyClass(LongWritable.class);
+			job.setMapOutputValueClass(IntWritable.class);
+
+			job.setReducerClass(Task2Reducer.class);
+			job.setCombinerClass(Task2Combiner.class);
+			job.setOutputValueClass(IntWritable.class);
+
+			// job.setPartitionerClass(ArticleIdModificationsPartitioner.class);
+			// job.setGroupingComparatorClass(ArticleIdModificationsGroupingComparator.class);
+
 			break;
 		case 1: // problem 3
 			System.out.println("Task 3");
@@ -503,7 +559,12 @@ public class BigDataApplication {
 			conf.set(BigDataApplication.DATE_TO, args[0]);
 
 			job = Job.getInstance(conf, "BigData3");
-			job.setReducerClass(Part3Reducer.class);
+
+			job.setMapperClass(Task3Mapper.class);
+			job.setMapOutputKeyClass(LongWritable.class);
+			job.setMapOutputValueClass(RevisionTimeStampWritable.class);
+
+			job.setReducerClass(Task3Reducer.class);
 			job.setOutputValueClass(Text.class);
 			break;
 		default:
@@ -513,30 +574,39 @@ public class BigDataApplication {
 		}
 
 		job.setJarByClass(BigDataApplication.class);
-		job.setMapperClass(BigDataAssignmentMapper.class);
-		job.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
-		job.setMapOutputValueClass(RevisionTimeStampWritable.class);
+
 		job.setOutputKeyClass(LongWritable.class);
 		job.setInputFormatClass(TextInputFormat.class);
 
+		FileSystem hdfs = FileSystem.get(conf);
+		// delete output directory before using it
+		hdfs.delete(new Path(outputLoc), true);
+
 		FileInputFormat.addInputPath(job, new Path(inputLoc));
 		if (args.length == 3) {
+			// delete temp directory before using it
+			hdfs.delete(new Path(tempLoc), true);
 			FileOutputFormat.setOutputPath(job, new Path(tempLoc));
 		} else {
 			FileOutputFormat.setOutputPath(job, new Path(outputLoc));
 		}
-
+		long timeStarted = System.currentTimeMillis();
 		// waiting for job to finish
 		boolean job1FinishedCorrectly = job.waitForCompletion(true);
 
+		System.out.println("Job Execution time in ms: "
+				+ (System.currentTimeMillis() - timeStarted));
+
 		if (job1FinishedCorrectly) {
+
+			hdfs.delete(new Path(hdfs_home + "sortedResult"), true);
 			// check if it is problem 2
 			if (args.length == 3) {
 				// start job that does the sorting
 				Job job2 = Job.getInstance(conf, "BigData2Sorting");
-				job2.setReducerClass(SortPart2Reducer.class);
+				job2.setReducerClass(Task2SortReducer.class);
 				job2.setJarByClass(BigDataApplication.class);
-				job2.setMapperClass(BigDataPart2SortMapper.class);
+				job2.setMapperClass(Task2SortMapper.class);
 				job2.setMapOutputKeyClass(NullWritable.class);
 				job2.setMapOutputValueClass(Text.class);
 				job2.setOutputKeyClass(NullWritable.class);
@@ -546,12 +616,22 @@ public class BigDataApplication {
 
 				FileInputFormat.addInputPath(job2, new Path(tempLoc));
 				FileOutputFormat.setOutputPath(job2, new Path(outputLoc));
-				// wait for sorting to finish
-				System.exit(job2.waitForCompletion(true) ? 0 : 1);
+				long time2ndStarted = System.currentTimeMillis();
 
+				// wait for sorting to finish
+				int result = job2.waitForCompletion(true) ? 0 : 1;
+				System.out.println("Sorting Job Execution time in ms: "
+						+ (System.currentTimeMillis() - time2ndStarted));
+
+				FileUtil.copyMerge(hdfs, new Path(outputLoc), hdfs, new Path(
+						hdfs_home + "sortedResult"), false, conf, null);
+				System.exit(result);
+			} else {
+				// merge outputs
+				FileUtil.copyMerge(hdfs, new Path(outputLoc), hdfs, new Path(
+						hdfs_home + "sortedResult"), false, conf, null);
 			}
-			System.exit(0);
 		}
-		System.exit(1);
+		System.exit(job1FinishedCorrectly ? 0 : 1);
 	}
 }
