@@ -7,10 +7,10 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
-import java.util.TreeMap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -25,6 +25,7 @@ import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Partitioner;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
@@ -38,8 +39,72 @@ public class BigDataApplication {
 
 	public static final String K = "K";
 
+	public static final int MAX_ARTICLE_ID = 15071261;
+
+	public static final long MIN_ARTICLE_ID = 6;
+
 	/**
-	 * Gathers revision information from records for task1
+	 * Gathers article ids and sends them to the reducer
+	 * 
+	 * @author kurtp
+	 */
+	public static class MaxArticleIdMapper extends
+			Mapper<Object, Text, NullWritable, LongWritable> {
+
+		public void map(Object key, Text value, Context context)
+				throws IOException, InterruptedException {
+
+			StringTokenizer lines = new StringTokenizer(value.toString(),
+					"\n\r\f");
+			while (lines.hasMoreTokens()) {
+				String line = lines.nextToken();
+				String[] words = line.split(" ");
+
+				// par each word in line
+				if ("REVISION".equals(words[0])) {
+
+					// populate revision
+					String articleId = words[1];
+
+					context.write(NullWritable.get(),
+							new LongWritable(Long.parseLong(articleId)));
+
+				}
+			}
+		}
+
+	}
+
+	/**
+	 * Receives Articles Ids and outputs the maximum and minimum
+	 * 
+	 * @author kurtp
+	 *
+	 */
+	public static class MaxArticleIdReducer extends
+			Reducer<NullWritable, LongWritable, LongWritable, NullWritable> {
+
+		public void reduce(NullWritable key, Iterable<LongWritable> values,
+				Context context) throws IOException, InterruptedException {
+
+			Long maxId = Long.MIN_VALUE;
+			Long minId = Long.MAX_VALUE;
+			for (LongWritable value : values) {
+				if (value.get() > maxId) {
+					maxId = value.get();
+				}
+				if (value.get() < minId) {
+					minId = value.get();
+				}
+			}
+			context.write(new LongWritable(maxId), NullWritable.get());
+			context.write(new LongWritable(minId), NullWritable.get());
+		}
+	}
+
+	/**
+	 * outputs article id, revision id pair the data the revision is posted must
+	 * be in between DATE_FROM and DATE_TO
 	 * 
 	 * @author kurtp
 	 */
@@ -94,12 +159,11 @@ public class BigDataApplication {
 				}
 			}
 		}
-
 	}
 
 	/**
-	 * Receives Articles with different revisions and timestamps. Sorts the
-	 * revisions in this time interval
+	 * Receives an article id with its associated revisions and then prints them
+	 * out.
 	 * 
 	 * @author kurtp
 	 *
@@ -128,7 +192,9 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Gathers revision information from records for task1
+	 * outputs article id, RevisionTimeStampWritable RevisionTimeStampWritable
+	 * contains revision id and timestamp the data the revision is posted must
+	 * be before DATE_TO
 	 * 
 	 * @author kurtp
 	 */
@@ -184,8 +250,9 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Receives Articles with different revisions and timestamps. Sorts the
-	 * revisions in this time interval
+	 * Receives an article id with its associated revisions and timestamps. Then
+	 * prints out the nearest date to today possible. (the Mapper would have
+	 * already removed revisions posted after DATE_TO)
 	 * 
 	 * @author kurtp
 	 *
@@ -223,7 +290,8 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Gathers revision information from records
+	 * outputs <article id, 1 > 1 represents the number of revisions revision
+	 * must be in between DATE_FROM and DATE_TO
 	 * 
 	 * @author kurtp
 	 */
@@ -280,8 +348,8 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Receives Articles with different revisions and timestamps. Adds them up
-	 * together.
+	 * combines revisions with their associated articles example article_3 1 and
+	 * article_3 1 becomes article_3 2 saves network traffic
 	 * 
 	 * @author kurtp
 	 *
@@ -302,8 +370,9 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Receives Articles with different revisions and timestamps. Adds up the
-	 * total number of modifications
+	 * Receives Article Ids as Keys. number of modifications inside the values.
+	 * Adds up the total number of modifications and then writes them for each
+	 * article id.
 	 * 
 	 * @author kurtp
 	 *
@@ -325,21 +394,15 @@ public class BigDataApplication {
 	 * Extracts the modifications and articles to send them to the reducers for
 	 * sorting keeping only the highest K
 	 * 
-	 * @author cloudera
+	 * @author kurtp
 	 *
 	 */
 	public static class Task2SortMapper extends
 			Mapper<Object, Text, NullWritable, Text> {
 
-		// Our output key and value Writables
-		private TreeMap<Integer, Text> repToRecordMap = new TreeMap<Integer, Text>();
-
 		@Override
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
-
-			Configuration conf = context.getConfiguration();
-			long k = Long.parseLong(conf.get(BigDataApplication.K));
 
 			StringTokenizer words = new StringTokenizer(value.toString());
 
@@ -348,35 +411,22 @@ public class BigDataApplication {
 				String articleId = words.nextToken();
 				String modifications = words.nextToken();
 
-				repToRecordMap.put(Integer.parseInt(modifications), new Text(
-						articleId + " " + modifications));
-
-				if (repToRecordMap.size() > k) {
-					repToRecordMap.remove(repToRecordMap.firstKey());
-				}
-			}
-		}
-
-		@Override
-		protected void cleanup(Context context) throws IOException,
-				InterruptedException {
-			for (Text t : repToRecordMap.values()) {
-				context.write(NullWritable.get(), t);
+				context.write(NullWritable.get(), new Text(articleId + " "
+						+ modifications));
 			}
 		}
 	}
 
 	/**
 	 * Sorts articles according to the number of modifications keeping only the
-	 * highest K
+	 * highest K All articles id arrive in 1 reducer thus the first K are chosen
+	 * in this method
 	 * 
-	 * @author cloudera
+	 * @author kurtp
 	 *
 	 */
 	public static class Task2SortReducer extends
 			Reducer<NullWritable, Text, NullWritable, Text> {
-
-		private TreeMap<Integer, Text> repToRecordMap = new TreeMap<Integer, Text>();
 
 		public void reduce(NullWritable key, Iterable<Text> values,
 				Context context) throws IOException, InterruptedException {
@@ -384,23 +434,44 @@ public class BigDataApplication {
 			Configuration conf = context.getConfiguration();
 			long k = Long.parseLong(conf.get(BigDataApplication.K));
 
-			for (Text value : values) {
-
-				StringTokenizer words = new StringTokenizer(value.toString());
-				String articleId = words.nextToken();
-				String modifications = words.nextToken();
-
-				repToRecordMap.put(Integer.parseInt(modifications), new Text(
-						articleId + " " + modifications));
-
-				if (repToRecordMap.size() > k) {
-					repToRecordMap.remove(repToRecordMap.firstKey());
+			Iterator<Text> iter = values.iterator();
+			for (int i = 0; i < k; i++) {
+				if (iter.hasNext()) {
+					context.write(NullWritable.get(), iter.next());
 				}
 			}
+		}
+	}
 
-			for (Text t : repToRecordMap.descendingMap().values()) {
-				context.write(NullWritable.get(), t);
-			}
+	/**
+	 * Partitions article ids to the appropriate reducer
+	 * 
+	 * @author kurtp
+	 *
+	 */
+	public static class Task1Partitioner extends
+			Partitioner<LongWritable, LongWritable> {
+
+		@Override
+		public int getPartition(LongWritable key, LongWritable value,
+				int numPartitions) {
+			return (int) (((key.get() - BigDataApplication.MIN_ARTICLE_ID) / (BigDataApplication.MAX_ARTICLE_ID / numPartitions)) % numPartitions);
+		}
+	}
+
+	/**
+	 * Partitions article ids to the appropriate reducer
+	 * 
+	 * @author kurtp
+	 *
+	 */
+	public static class Task3Partitioner extends
+			Partitioner<LongWritable, RevisionTimeStampWritable> {
+
+		@Override
+		public int getPartition(LongWritable key,
+				RevisionTimeStampWritable value, int numPartitions) {
+			return (int) (((key.get() - BigDataApplication.MIN_ARTICLE_ID) / (BigDataApplication.MAX_ARTICLE_ID / numPartitions)) % numPartitions);
 		}
 	}
 
@@ -495,25 +566,21 @@ public class BigDataApplication {
 		Configuration conf = new Configuration();
 
 		// assignment final conf
-		// String hdfs_home = "/user/2222148p/";
-		// conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
-		// conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
+		String hdfs_home = "/user/2222148p/";
+		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
+		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
 		// String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
-		// String outputLoc = hdfs_home + "output";
-		// String tempLoc = hdfs_home + "temp";
-
-		/*
-		 * conf.setBoolean("mapred.compress.map.output", true);
-		 * conf.setClass("mapred.map.output.compression.codec", GzipCodec.class,
-		 * CompressionCodec.class);
-		 */
+		String inputLoc = "/user/bd4-ae1/enwiki-20080103-sample.txt";
+		String outputLoc = hdfs_home + "output";
+		String tempLoc = hdfs_home + "temp";
 
 		// localhost stuff
-		conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
-		String hdfs_home = "/user/hadoop/wiki/";
-		String inputLoc = hdfs_home + "wiki_1428.txt";
-		String outputLoc = hdfs_home + "output/";
-		String tempLoc = hdfs_home + "temp/";
+		/*
+		 * conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
+		 * String hdfs_home = "/user/hadoop/wiki/"; String inputLoc = hdfs_home
+		 * + "wiki_1428.txt"; String outputLoc = hdfs_home + "output/"; String
+		 * tempLoc = hdfs_home + "temp/";
+		 */
 
 		Job job = null;
 		switch (args.length) {
@@ -528,6 +595,7 @@ public class BigDataApplication {
 			job.setMapperClass(Task1Mapper.class);
 			job.setMapOutputKeyClass(LongWritable.class);
 			job.setMapOutputValueClass(LongWritable.class);
+			job.setPartitionerClass(Task1Partitioner.class);
 
 			job.setReducerClass(Task1Reducer.class);
 			job.setOutputValueClass(Text.class);
@@ -548,10 +616,6 @@ public class BigDataApplication {
 			job.setReducerClass(Task2Reducer.class);
 			job.setCombinerClass(Task2Combiner.class);
 			job.setOutputValueClass(IntWritable.class);
-
-			// job.setPartitionerClass(ArticleIdModificationsPartitioner.class);
-			// job.setGroupingComparatorClass(ArticleIdModificationsGroupingComparator.class);
-
 			break;
 		case 1: // problem 3
 			System.out.println("Task 3");
@@ -563,9 +627,23 @@ public class BigDataApplication {
 			job.setMapperClass(Task3Mapper.class);
 			job.setMapOutputKeyClass(LongWritable.class);
 			job.setMapOutputValueClass(RevisionTimeStampWritable.class);
+			job.setPartitionerClass(Task3Partitioner.class);
 
 			job.setReducerClass(Task3Reducer.class);
 			job.setOutputValueClass(Text.class);
+			break;
+		case 0:
+			System.out.println("Get Max articleId");
+
+			job = Job.getInstance(conf, "maxArticleId");
+
+			job.setMapperClass(MaxArticleIdMapper.class);
+			job.setMapOutputKeyClass(NullWritable.class);
+			job.setMapOutputValueClass(LongWritable.class);
+
+			job.setReducerClass(MaxArticleIdReducer.class);
+			job.setOutputValueClass(NullWritable.class);
+			job.setNumReduceTasks(1);
 			break;
 		default:
 			System.err.println("minimum 1 argument, maximum 3 arguments");
