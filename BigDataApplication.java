@@ -414,8 +414,8 @@ public class BigDataApplication {
 
 			Configuration conf = context.getConfiguration();
 			int k = Integer.parseInt(conf.get(BigDataApplication.K));
-			//no race conditions since 1 reducer
-			if (k > 0) {//print articles as long as k is not 0
+			// no race conditions since 1 reducer
+			if (k > 0) {// print articles as long as k is not 0
 				context.write(new LongWritable(key.getArticleId()),
 						new IntWritable(key.getModifications()));
 				k--;
@@ -614,8 +614,7 @@ public class BigDataApplication {
 		String hdfs_home = "/user/2222148p/";
 		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
 		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
-		// String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
-		String inputLoc = "/user/bd4-ae1/enwiki-20080103-sample.txt";
+		String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
 		String outputLoc = hdfs_home + "output";
 		String tempLoc = hdfs_home + "temp";
 
