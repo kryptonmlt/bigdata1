@@ -7,7 +7,6 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
@@ -348,28 +347,6 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * combines revisions with their associated articles example article_3 1 and
-	 * article_3 1 becomes article_3 2 saves network traffic
-	 * 
-	 * @author kurtp
-	 *
-	 */
-	public static class Task2Combiner extends
-			Reducer<LongWritable, IntWritable, LongWritable, IntWritable> {
-
-		public void reduce(LongWritable key, Iterable<IntWritable> values,
-				Context context) throws IOException, InterruptedException {
-
-			int sum = 0;
-			for (IntWritable value : values) {
-				sum += value.get();
-			}
-
-			context.write(key, new IntWritable(sum));
-		}
-	}
-
-	/**
 	 * Receives Article Ids as Keys. number of modifications inside the values.
 	 * Adds up the total number of modifications and then writes them for each
 	 * article id.
@@ -398,7 +375,7 @@ public class BigDataApplication {
 	 *
 	 */
 	public static class Task2SortMapper extends
-			Mapper<Object, Text, NullWritable, Text> {
+			Mapper<Object, Text, ArticleIdModificationsWritable, NullWritable> {
 
 		@Override
 		public void map(Object key, Text value, Context context)
@@ -411,8 +388,10 @@ public class BigDataApplication {
 				String articleId = words.nextToken();
 				String modifications = words.nextToken();
 
-				context.write(NullWritable.get(), new Text(articleId + " "
-						+ modifications));
+				context.write(
+						new ArticleIdModificationsWritable(Long
+								.parseLong(articleId), Integer
+								.parseInt(modifications)), NullWritable.get());
 			}
 		}
 	}
@@ -425,21 +404,26 @@ public class BigDataApplication {
 	 * @author kurtp
 	 *
 	 */
-	public static class Task2SortReducer extends
-			Reducer<NullWritable, Text, NullWritable, Text> {
+	public static class Task2SortReducer
+			extends
+			Reducer<ArticleIdModificationsWritable, NullWritable, LongWritable, IntWritable> {
 
-		public void reduce(NullWritable key, Iterable<Text> values,
-				Context context) throws IOException, InterruptedException {
+		public void reduce(ArticleIdModificationsWritable key,
+				Iterable<NullWritable> values, Context context)
+				throws IOException, InterruptedException {
 
 			Configuration conf = context.getConfiguration();
-			long k = Long.parseLong(conf.get(BigDataApplication.K));
-
-			Iterator<Text> iter = values.iterator();
-			for (int i = 0; i < k; i++) {
-				if (iter.hasNext()) {
-					context.write(NullWritable.get(), iter.next());
-				}
+			int k = Integer.parseInt(conf.get(BigDataApplication.K));
+			//no race conditions since 1 reducer
+			if (k > 0) {//print articles as long as k is not 0
+				context.write(new LongWritable(key.getArticleId()),
+						new IntWritable(key.getModifications()));
+				k--;
+			} else {
+				// stop reducer
+				cleanup(context);
 			}
+			conf.setInt(BigDataApplication.K, k);
 		}
 	}
 
@@ -499,6 +483,67 @@ public class BigDataApplication {
 			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 			df.setTimeZone(TimeZone.getTimeZone("UTC"));
 			return df.parse(wikiText.replace("T", " ").replace("Z", ""));
+		}
+	}
+
+	/**
+	 * Output Key Mapper object containing article Id and modifications
+	 * 
+	 * @author kurtp
+	 *
+	 */
+	public static class ArticleIdModificationsWritable implements Writable,
+			WritableComparable<ArticleIdModificationsWritable> {
+
+		private Long articleId;
+		private Integer modifications;
+
+		public ArticleIdModificationsWritable() {
+		}
+
+		public ArticleIdModificationsWritable(long articleId, int modifications) {
+			this.articleId = articleId;
+			this.modifications = modifications;
+		}
+
+		@Override
+		public String toString() {
+			return (new StringBuilder().append(articleId)).append(" ")
+					.append(modifications).toString();
+		}
+
+		public void readFields(DataInput dataInput) throws IOException {
+			articleId = WritableUtils.readVLong(dataInput);
+			modifications = WritableUtils.readVInt(dataInput);
+		}
+
+		public void write(DataOutput dataOutput) throws IOException {
+			WritableUtils.writeVLong(dataOutput, articleId);
+			WritableUtils.writeVInt(dataOutput, modifications);
+		}
+
+		public int compareTo(ArticleIdModificationsWritable objKeyPair) {
+			int result = -modifications.compareTo(objKeyPair.modifications);
+			if (result == 0) {
+				result = articleId.compareTo(objKeyPair.articleId);
+			}
+			return result;
+		}
+
+		public Long getArticleId() {
+			return articleId;
+		}
+
+		public void setArticleId(Long articleId) {
+			this.articleId = articleId;
+		}
+
+		public Integer getModifications() {
+			return modifications;
+		}
+
+		public void setModifications(Integer modifications) {
+			this.modifications = modifications;
 		}
 	}
 
@@ -614,7 +659,6 @@ public class BigDataApplication {
 			job.setMapOutputValueClass(IntWritable.class);
 
 			job.setReducerClass(Task2Reducer.class);
-			job.setCombinerClass(Task2Combiner.class);
 			job.setOutputValueClass(IntWritable.class);
 			break;
 		case 1: // problem 3
@@ -685,10 +729,10 @@ public class BigDataApplication {
 				job2.setReducerClass(Task2SortReducer.class);
 				job2.setJarByClass(BigDataApplication.class);
 				job2.setMapperClass(Task2SortMapper.class);
-				job2.setMapOutputKeyClass(NullWritable.class);
-				job2.setMapOutputValueClass(Text.class);
-				job2.setOutputKeyClass(NullWritable.class);
-				job2.setOutputValueClass(Text.class);
+				job2.setMapOutputKeyClass(ArticleIdModificationsWritable.class);
+				job2.setMapOutputValueClass(NullWritable.class);
+				job2.setOutputKeyClass(LongWritable.class);
+				job2.setOutputValueClass(IntWritable.class);
 				job2.setInputFormatClass(TextInputFormat.class);
 				job2.setNumReduceTasks(1);
 
