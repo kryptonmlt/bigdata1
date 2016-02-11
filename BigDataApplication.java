@@ -614,7 +614,7 @@ public class BigDataApplication {
 		String hdfs_home = "/user/2222148p/";
 		conf.addResource(new Path("bd4-hadoop/conf/core-site.xml"));
 		conf.set("mapred.jar", "/users/msc/2222148p/KurtJimmiBD.jar");
-		String inputLoc = "/user/bd4-ae1/enwiki-20080103-full.txt";
+		String inputLoc = "/user/bd4-ae1/enwiki-20080103-perftest.txt";
 		String outputLoc = hdfs_home + "output";
 		String tempLoc = hdfs_home + "temp";
 
