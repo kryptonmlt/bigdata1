@@ -38,9 +38,9 @@ public class BigDataApplication {
 
 	public static final String K = "K";
 
-	public static final int MAX_ARTICLE_ID = 15071261;
+	public static final int MAX_ARTICLE_ID = 15071250;
 
-	public static final long MIN_ARTICLE_ID = 6;
+	public static final long MIN_ARTICLE_ID = 12;
 
 	/**
 	 * Gathers article ids and sends them to the reducer
@@ -53,17 +53,14 @@ public class BigDataApplication {
 		public void map(Object key, Text value, Context context)
 				throws IOException, InterruptedException {
 
-			StringTokenizer lines = new StringTokenizer(value.toString(),
-					"\n\r\f");
-			while (lines.hasMoreTokens()) {
-				String line = lines.nextToken();
-				String[] words = line.split(" ");
+			StringTokenizer words = new StringTokenizer(value.toString());
+			if (words.hasMoreTokens()) {
 
 				// par each word in line
-				if ("REVISION".equals(words[0])) {
+				if ("REVISION".equals(words.nextToken())) {
 
 					// populate revision
-					String articleId = words[1];
+					String articleId = words.nextToken();
 
 					context.write(NullWritable.get(),
 							new LongWritable(Long.parseLong(articleId)));
@@ -126,19 +123,18 @@ public class BigDataApplication {
 				e.printStackTrace();
 			}
 
-			StringTokenizer lines = new StringTokenizer(value.toString(),
-					"\n\r\f");
-			while (lines.hasMoreTokens()) {
-				String line = lines.nextToken();
-				String[] words = line.split(" ");
+			StringTokenizer words = new StringTokenizer(value.toString());
+			if (words.hasMoreTokens()) {
 
-				// par each word in line
-				if ("REVISION".equals(words[0])) {
+				// we know we received only the first line of whole record. so
+				// we check only first word
+				if ("REVISION".equals(words.nextToken())) {
 
 					// populate revision
-					String articleId = words[1];
-					String revisionId = words[2];
-					String timeStamp = words[4];
+					String articleId = words.nextToken();
+					String revisionId = words.nextToken();
+					words.nextToken();
+					String timeStamp = words.nextToken();
 
 					Date timeStampDate;
 					try {
@@ -213,19 +209,17 @@ public class BigDataApplication {
 				e.printStackTrace();
 			}
 
-			StringTokenizer lines = new StringTokenizer(value.toString(),
-					"\n\r\f");
-			while (lines.hasMoreTokens()) {
-				String line = lines.nextToken();
-				String[] words = line.split(" ");
+			StringTokenizer words = new StringTokenizer(value.toString());
+			if (words.hasMoreTokens()) {
 
 				// par each word in line
-				if ("REVISION".equals(words[0])) {
+				if ("REVISION".equals(words.nextToken())) {
 
 					// populate revision
-					String articleId = words[1];
-					String revisionId = words[2];
-					String timeStamp = words[4];
+					String articleId = words.nextToken();
+					String revisionId = words.nextToken();
+					words.nextToken();
+					String timeStamp = words.nextToken();
 
 					Date timeStampDate;
 					try {
@@ -313,18 +307,17 @@ public class BigDataApplication {
 				e.printStackTrace();
 			}
 
-			StringTokenizer lines = new StringTokenizer(value.toString(),
-					"\n\r\f");
-			while (lines.hasMoreTokens()) {
-				String line = lines.nextToken();
-				String[] words = line.split(" ");
+			StringTokenizer words = new StringTokenizer(value.toString());
+			if (words.hasMoreTokens()) {
 
 				// par each word in line
-				if ("REVISION".equals(words[0])) {
+				if ("REVISION".equals(words.nextToken())) {
 
 					// populate revision
-					String articleId = words[1];
-					String timeStamp = words[4];
+					String articleId = words.nextToken();
+					words.nextToken();
+					words.nextToken();
+					String timeStamp = words.nextToken();
 
 					Date timeStampDate;
 					try {
@@ -368,8 +361,8 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Extracts the modifications and articles to send them to the reducers for
-	 * sorting keeping only the highest K
+	 * Extracts the modifications and articles putting them in composite object
+	 * then writes them to reducer
 	 * 
 	 * @author kurtp
 	 *
@@ -428,7 +421,9 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Partitions article ids to the appropriate reducer
+	 * Partitions article ids to the appropriate reducer Using minimum and
+	 * maximum Ids This ensures ordering is correct when merging files of all
+	 * reducers
 	 * 
 	 * @author kurtp
 	 *
@@ -444,7 +439,9 @@ public class BigDataApplication {
 	}
 
 	/**
-	 * Partitions article ids to the appropriate reducer
+	 * Partitions article ids to the appropriate reducer Using minimum and
+	 * maximum Ids This ensures ordering is correct when merging files of all
+	 * reducers
 	 * 
 	 * @author kurtp
 	 *
@@ -522,6 +519,9 @@ public class BigDataApplication {
 			WritableUtils.writeVInt(dataOutput, modifications);
 		}
 
+		/**
+		 * first sorts modifications in descending order then articleId
+		 */
 		public int compareTo(ArticleIdModificationsWritable objKeyPair) {
 			int result = -modifications.compareTo(objKeyPair.modifications);
 			if (result == 0) {
@@ -617,8 +617,9 @@ public class BigDataApplication {
 		String inputLoc = "/user/bd4-ae1/enwiki-20080103-perftest.txt";
 		String outputLoc = hdfs_home + "output";
 		String tempLoc = hdfs_home + "temp";
+		conf.set("textinputformat.record.delimiter", "\n\n");
 
-		// localhost stuff
+		// localhost stuff use for testing
 		/*
 		 * conf.addResource(new Path("/etc/hadoop/conf.pseudo/core-site.xml"));
 		 * String hdfs_home = "/user/hadoop/wiki/"; String inputLoc = hdfs_home
@@ -675,7 +676,7 @@ public class BigDataApplication {
 			job.setReducerClass(Task3Reducer.class);
 			job.setOutputValueClass(Text.class);
 			break;
-		case 0:
+		case 0:// job to get maximum and minimum id
 			System.out.println("Get Max articleId");
 
 			job = Job.getInstance(conf, "maxArticleId");
@@ -724,6 +725,7 @@ public class BigDataApplication {
 			// check if it is problem 2
 			if (args.length == 3) {
 				// start job that does the sorting
+				conf.set("textinputformat.record.delimiter", "\n");
 				Job job2 = Job.getInstance(conf, "BigData2Sorting");
 				job2.setReducerClass(Task2SortReducer.class);
 				job2.setJarByClass(BigDataApplication.class);
@@ -733,6 +735,7 @@ public class BigDataApplication {
 				job2.setOutputKeyClass(LongWritable.class);
 				job2.setOutputValueClass(IntWritable.class);
 				job2.setInputFormatClass(TextInputFormat.class);
+				// use 1 reducer to use K
 				job2.setNumReduceTasks(1);
 
 				FileInputFormat.addInputPath(job2, new Path(tempLoc));
@@ -744,6 +747,7 @@ public class BigDataApplication {
 				System.out.println("Sorting Job Execution time in ms: "
 						+ (System.currentTimeMillis() - time2ndStarted));
 
+				// merge outputs
 				FileUtil.copyMerge(hdfs, new Path(outputLoc), hdfs, new Path(
 						hdfs_home + "sortedResult"), false, conf, null);
 				System.exit(result);
