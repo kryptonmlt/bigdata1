@@ -29,6 +29,7 @@ import org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil;
 import org.apache.hadoop.hbase.mapreduce.TableMapper;
 import org.apache.hadoop.hbase.mapreduce.TableReducer;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.util.Tool;
@@ -89,9 +90,12 @@ public class Assignment2 extends Configured implements Tool {
 			System.out.println("Task 2");
 			scan.setTimeRange(Tools.getDateFromWikiString(args[0]), Tools.getDateFromWikiString(args[1]));
 			prepareOutputTable(admin, Assignment2.Task2_CF);
-
-			conf.set(Assignment2.K, args[2]);
 			job = Job.getInstance(conf, "BigData2");
+
+			TableMapReduceUtil.initTableMapperJob(Assignment2.INPUT_TABLE, scan, Task2Mapper.class,
+					ImmutableBytesWritable.class, IntWritable.class, job);
+			TableMapReduceUtil.initTableReducerJob(Assignment2.OUTPUT_TABLE, Task2Reducer.class, job);
+			System.out.println("Task 2 config set");
 
 			break;
 		case 1: // problem 3
@@ -115,32 +119,65 @@ public class Assignment2 extends Configured implements Tool {
 
 		job.setJarByClass(Assignment2.class);
 		int result = job.waitForCompletion(true) ? 0 : 1;
-		viewData(conf, Assignment2.Task1_CF);
+		switch (args.length) {
+		case 2: // problem 1
+			viewData(conf, Assignment2.Task1_CF, 0);
+			break;
+		case 3:// problem 2
+			viewData(conf, Assignment2.Task2_CF, Integer.parseInt(args[2]));
+			break;
+		case 1:// problem 3
+			viewData(conf, Assignment2.Task3_CF, 0);
+			break;
+		default:
+			System.out.println("Unkown Task..");
+			break;
+		}
 		return result;
 	}
 
-	public static void viewData(Configuration conf, String columnFamily) throws IOException {
+	public static void viewData(Configuration conf, String columnFamily, int k) throws IOException {
 
 		HTable table = new HTable(conf, Assignment2.OUTPUT_TABLE);
 		Scan scan = new Scan();
 		scan.addFamily(Bytes.toBytes(columnFamily));
 		ResultScanner ss = table.getScanner(scan);
-		for (Result r : ss) {
-			for (KeyValue kv : r.raw()) {
-				// System.out.println(kv.getKeyString());
-				long key = Bytes.toLong(kv.getBuffer(), kv.getRowOffset(), kv.getRowLength());
-				String cf = Bytes.toString(kv.getBuffer(), kv.getFamilyOffset(), kv.getFamilyLength());
-				String c = Bytes.toString(kv.getBuffer(), kv.getQualifierOffset(), kv.getQualifierLength());
-				byte[] data = Bytes.copy(kv.getBuffer(), kv.getValueOffset(), kv.getValueLength());
-				int revisionSize = kv.getValueLength() / 8;
+		switch (columnFamily) {
+		case Assignment2.Task1_CF:
+			for (Result r : ss) {
+				for (KeyValue kv : r.raw()) {
+					long key = Bytes.toLong(kv.getBuffer(), kv.getRowOffset(), kv.getRowLength());
+					byte[] data = Bytes.copy(kv.getBuffer(), kv.getValueOffset(), kv.getValueLength());
+					int revisionSize = kv.getValueLength() / 8;
 
-				StringBuffer sb = new StringBuffer();
-				for (int i = 0; i < revisionSize; i++) {
-					sb.append(" " + Bytes.toLong(data, 8 * i, 8));
+					StringBuffer sb = new StringBuffer();
+					for (int i = 0; i < revisionSize; i++) {
+						sb.append(" " + Bytes.toLong(data, 8 * i, 8));
+					}
+					System.out.println(key + " " + revisionSize + " " + sb.toString());
 				}
-				System.out.println(key + " " + revisionSize + " " + sb.toString());
-				// System.out.println("TimeStamp: " + kv.getTimestamp());
+
 			}
+			break;
+		case Assignment2.Task2_CF:
+			int i = 0;
+			for (Result r : ss) {
+				if (i > k) {
+					break;
+				}
+				for (KeyValue kv : r.raw()) {
+					int inverseAmount = Bytes.toInt(kv.getBuffer(), kv.getRowOffset(), 4);
+					int amount = Integer.MAX_VALUE - inverseAmount;
+					long key = Bytes.toLong(kv.getBuffer(), (kv.getRowOffset() + 4), 8);
+					System.out.println(key + " " + amount);
+				}
+				i++;
+			}
+			break;
+		case Assignment2.Task3_CF:
+			break;
+		default:
+			break;
 		}
 		table.close();
 	}
@@ -195,6 +232,37 @@ public class Assignment2 extends Configured implements Tool {
 			Put put = new Put(key.get());
 			// column family, column name, data
 			put.add(Bytes.toBytes(Assignment2.Task1_CF), Bytes.toBytes("result"), result.buffer());
+			// write row
+			context.write(new ImmutableBytesWritable(put.getRow()), put);
+		}
+	}
+
+	public static class Task2Mapper extends TableMapper<ImmutableBytesWritable, IntWritable> {
+		private static IntWritable one = new IntWritable(1);
+
+		public void map(ImmutableBytesWritable key, Result value, Context context)
+				throws IOException, InterruptedException {
+
+			// extract info
+			long articleId = Bytes.toLong(key.get(), 0, 8);
+			// write info
+			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), one);
+		}
+	}
+
+	public static class Task2Reducer extends TableReducer<ImmutableBytesWritable, IntWritable, ImmutableBytesWritable> {
+		public void reduce(ImmutableBytesWritable key, Iterable<IntWritable> values, Context context)
+				throws IOException, InterruptedException {
+
+			// sort revisions of article id
+			int sum = 0;
+			for (IntWritable value : values) {
+				sum += value.get();
+			}
+			int inverseSum = Integer.MAX_VALUE - sum;
+			Put put = new Put(Bytes.add(Bytes.toBytes(inverseSum), key.get()));
+			// column family, column name, data
+			put.add(Bytes.toBytes(Assignment2.Task2_CF), Bytes.toBytes("result"), Bytes.toBytes(true));
 			// write row
 			context.write(new ImmutableBytesWritable(put.getRow()), put);
 		}
