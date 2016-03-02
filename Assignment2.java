@@ -5,6 +5,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.NavigableMap;
 import java.util.TimeZone;
 
 import org.apache.hadoop.conf.Configuration;
@@ -13,9 +14,13 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.InvalidFamilyOperationException;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.FilterList;
 import org.apache.hadoop.hbase.filter.FilterList.Operator;
@@ -112,7 +117,32 @@ public class Assignment2 extends Configured implements Tool {
 		job.setJarByClass(Assignment2.class);
 		int result = job.waitForCompletion(true) ? 0 : 1;
 		System.out.println("Result: " + result);
+		viewData(conf, Assignment2.Task1_CF);
 		return result;
+	}
+
+	public static void viewData(Configuration conf, String columnFamily) throws IOException {
+
+		HTable table = new HTable(conf, Assignment2.OUTPUT_TABLE);
+		Scan scan = new Scan();
+		scan.addFamily(Bytes.toBytes(columnFamily));
+		ResultScanner ss = table.getScanner(scan);
+		for (Result r : ss) {
+			for (KeyValue kv : r.raw()) {
+				long key = Bytes.toLong(kv.getBuffer(), kv.getRowOffset(), kv.getRowLength());
+				String cf = Bytes.toString(kv.getBuffer(), kv.getFamilyOffset(), kv.getFamilyLength());
+				String c = Bytes.toString(kv.getBuffer(), kv.getQualifierOffset(), kv.getQualifierLength());
+				int value = Bytes.toInt(kv.getBuffer(), kv.getValueOffset(), kv.getValueLength());
+				String test1 = Bytes.toString(kv.getBuffer(), 0, 9);
+				System.out.println(test1 + ", offset: " + 0 + ", length:" + 9);
+				System.out.println(key + ", offset: " + kv.getRowOffset() + ", length:" + kv.getRowLength());
+				System.out.println(cf + ", offset: " + kv.getFamilyOffset() + ", length:" + kv.getFamilyLength());
+				System.out.println(c + ", offset: " + kv.getQualifierOffset() + ", length:" + kv.getQualifierLength());
+				System.out.println(kv.getTimestamp() + ", offset: " + kv.getTimestampOffset() + ", length:" + 8);
+				System.out.println(value + ", offset: " + kv.getValueOffset() + ", length:" + kv.getValueLength());
+				System.out.println(kv.getKeyString());
+			}
+		}
 	}
 
 	public static void prepareOutputTable(HBaseAdmin admin, String columnFamily) throws IOException {
@@ -156,10 +186,11 @@ public class Assignment2 extends Configured implements Tool {
 			// populate output row
 
 			Put put = new Put(key.get());
-			put.add(Bytes.toBytes("Task1"), Bytes.toBytes("total"), Bytes.toBytes(revisions.size()));
+			put.add(Bytes.toBytes(Assignment2.Task1_CF), Bytes.toBytes("total"), Bytes.toBytes(revisions.size()));
 			for (int i = 0; i < revisions.size(); i++) {
 				// column family, column name, data
-				put.add(Bytes.toBytes("Task1"), Bytes.toBytes("rev_" + i), Bytes.toBytes(revisions.get(i)));
+				put.add(Bytes.toBytes(Assignment2.Task1_CF), Bytes.toBytes("rev_" + i),
+						Bytes.toBytes(revisions.get(i)));
 			} // write row
 			context.write(new ImmutableBytesWritable(put.getRow()), put);
 		}
