@@ -1,4 +1,5 @@
 import java.io.IOException;
+import java.sql.Date;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -105,6 +106,11 @@ public class Assignment2 extends Configured implements Tool {
 
 			job = Job.getInstance(conf, "BigData3");
 
+			TableMapReduceUtil.initTableMapperJob(Assignment2.INPUT_TABLE, scan, Task3Mapper.class,
+					ImmutableBytesWritable.class, ImmutableBytesWritable.class, job);
+			TableMapReduceUtil.initTableReducerJob(Assignment2.OUTPUT_TABLE, Task3Reducer.class, job);
+			System.out.println("Task 3 config set");
+
 			break;
 		case 0:// job to get maximum and minimum id
 			System.out.println("Get Max articleId");
@@ -154,7 +160,7 @@ public class Assignment2 extends Configured implements Tool {
 					for (int i = 0; i < revisionSize; i++) {
 						sb.append(" " + Bytes.toLong(data, 8 * i, 8));
 					}
-					System.out.println(key + " " + revisionSize + " " + sb.toString());
+					System.out.println(key + " " + revisionSize + sb.toString());
 				}
 
 			}
@@ -175,6 +181,23 @@ public class Assignment2 extends Configured implements Tool {
 			}
 			break;
 		case Assignment2.Task3_CF:
+			for (Result r : ss) {
+				for (KeyValue kv : r.raw()) {
+					long key = Bytes.toLong(kv.getBuffer(), kv.getRowOffset(), kv.getRowLength());
+					byte[] data = Bytes.copy(kv.getBuffer(), kv.getValueOffset(), kv.getValueLength());
+					StringBuffer sb = new StringBuffer();
+					// read revision id
+					sb.append(Bytes.toLong(data, 0, 8));
+					try {
+						// read timestamp
+						sb.append(" "+Tools.getWikiStringFromLong(Bytes.toLong(data, 8, 8)));
+					} catch (ParseException e) {
+						e.printStackTrace();
+					}
+					System.out.println(key + " " + sb.toString());
+				}
+			}
+
 			break;
 		default:
 			break;
@@ -268,6 +291,51 @@ public class Assignment2 extends Configured implements Tool {
 		}
 	}
 
+	public static class Task3Mapper extends TableMapper<ImmutableBytesWritable, ImmutableBytesWritable> {
+
+		public void map(ImmutableBytesWritable key, Result value, Context context)
+				throws IOException, InterruptedException {
+
+			// extract info
+			long articleId = Bytes.toLong(key.get(), 0, 8);
+			long revisionId = Bytes.toLong(key.get(), 8, 8);
+
+			for (KeyValue kv : value.raw()) {
+				long timestamp = kv.getTimestamp();
+				byte[] output = Bytes.add(Bytes.toBytes(timestamp), Bytes.toBytes(revisionId));
+				// write info
+				context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), new ImmutableBytesWritable(output));
+			}
+		}
+	}
+
+	public static class Task3Reducer
+			extends TableReducer<ImmutableBytesWritable, ImmutableBytesWritable, ImmutableBytesWritable> {
+		public void reduce(ImmutableBytesWritable key, Iterable<ImmutableBytesWritable> values, Context context)
+				throws IOException, InterruptedException {
+
+			// get latest revision id and timestamp
+			long lastestTimestamp = Long.MIN_VALUE;
+			long latestRevisionId = 0;
+			for (ImmutableBytesWritable value : values) {
+				long timeStamp = Bytes.toLong(value.get(), 0, 8);
+				if (timeStamp > lastestTimestamp) {
+					latestRevisionId = Bytes.toLong(value.get(), 8, 8);
+					lastestTimestamp = timeStamp;
+				}
+			}
+
+			// populate buffer
+			byte[] output = Bytes.add(Bytes.toBytes(latestRevisionId), Bytes.toBytes(lastestTimestamp));
+
+			Put put = new Put(key.get());
+			// column family, column name, data
+			put.add(Bytes.toBytes(Assignment2.Task3_CF), Bytes.toBytes("result"), output);
+			// write row
+			context.write(new ImmutableBytesWritable(put.getRow()), put);
+		}
+	}
+
 	/**
 	 * Random Tools
 	 * 
@@ -292,6 +360,17 @@ public class Assignment2 extends Configured implements Tool {
 			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 			df.setTimeZone(TimeZone.getTimeZone("UTC"));
 			return df.parse(wikiText.replace("T", " ").replace("Z", "")).getTime();
+		}
+
+		/**
+		 * Convert Date to WikiString
+		 *
+		 */
+		public static String getWikiStringFromLong(long date) throws ParseException {
+			DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+			df.setTimeZone(TimeZone.getTimeZone("UTC"));
+			String result = df.format(new Date(date));
+			return result.replace(" ", "T") + "Z";
 		}
 	}
 
