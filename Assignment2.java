@@ -168,7 +168,7 @@ public class Assignment2 extends Configured implements Tool {
 		case Assignment2.Task2_CF:
 			int i = 0;
 			for (Result r : ss) {
-				if (i > k) {
+				if (i == k) {
 					break;
 				}
 				for (KeyValue kv : r.raw()) {
