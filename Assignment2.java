@@ -74,9 +74,9 @@ public class Assignment2 extends Configured implements Tool {
 		Job job = null;
 		switch (args.length) {
 		case 2: // problem 1
-
-			System.out.println("Task 1");
-			scan.setTimeRange(Tools.getDateFromWikiString(args[0]), Tools.getDateFromWikiString(args[1]));
+			long from = Tools.getDateFromWikiString(args[0]);
+			long to = Tools.getDateFromWikiString(args[1]);
+			scan.setTimeRange(from, to);
 
 			job = Job.getInstance(conf, "BigData1");
 			prepareOutputTable(admin, Assignment2.Task1_CF);
@@ -84,11 +84,9 @@ public class Assignment2 extends Configured implements Tool {
 			TableMapReduceUtil.initTableMapperJob(Assignment2.INPUT_TABLE, scan, Task1Mapper.class,
 					ImmutableBytesWritable.class, LongWritable.class, job);
 			TableMapReduceUtil.initTableReducerJob(Assignment2.OUTPUT_TABLE, Task1Reducer.class, job);
-			System.out.println("Task 1 config set");
 
 			break;
 		case 3: // problem 2
-			System.out.println("Task 2");
 			scan.setTimeRange(Tools.getDateFromWikiString(args[0]), Tools.getDateFromWikiString(args[1]));
 			prepareOutputTable(admin, Assignment2.Task2_CF);
 			job = Job.getInstance(conf, "BigData2");
@@ -96,11 +94,9 @@ public class Assignment2 extends Configured implements Tool {
 			TableMapReduceUtil.initTableMapperJob(Assignment2.INPUT_TABLE, scan, Task2Mapper.class,
 					ImmutableBytesWritable.class, IntWritable.class, job);
 			TableMapReduceUtil.initTableReducerJob(Assignment2.OUTPUT_TABLE, Task2Reducer.class, job);
-			System.out.println("Task 2 config set");
 
 			break;
 		case 1: // problem 3
-			System.out.println("Task 3");
 			scan.setTimeRange(0L, Tools.getDateFromWikiString(args[0]));
 			prepareOutputTable(admin, Assignment2.Task3_CF);
 
@@ -109,13 +105,7 @@ public class Assignment2 extends Configured implements Tool {
 			TableMapReduceUtil.initTableMapperJob(Assignment2.INPUT_TABLE, scan, Task3Mapper.class,
 					ImmutableBytesWritable.class, ImmutableBytesWritable.class, job);
 			TableMapReduceUtil.initTableReducerJob(Assignment2.OUTPUT_TABLE, Task3Reducer.class, job);
-			System.out.println("Task 3 config set");
 
-			break;
-		case 0:// job to get maximum and minimum id
-			System.out.println("Get Max articleId");
-
-			job = Job.getInstance(conf, "maxArticleId");
 			break;
 		default:
 			System.err.println("minimum 1 argument, maximum 3 arguments");
@@ -190,7 +180,7 @@ public class Assignment2 extends Configured implements Tool {
 					sb.append(Bytes.toLong(data, 0, 8));
 					try {
 						// read timestamp
-						sb.append(" "+Tools.getWikiStringFromLong(Bytes.toLong(data, 8, 8)));
+						sb.append(" " + Tools.getWikiStringFromLong(Bytes.toLong(data, 8, 8)));
 					} catch (ParseException e) {
 						e.printStackTrace();
 					}
@@ -209,27 +199,35 @@ public class Assignment2 extends Configured implements Tool {
 		// Deleting a column family
 		try {
 			admin.deleteColumn(Assignment2.OUTPUT_TABLE, columnFamily);
-			System.out.println("Column Family " + columnFamily + " deleted ..");
+			//System.out.println("Column Family " + columnFamily + " deleted ..");
 		} catch (InvalidFamilyOperationException e) {
-			System.out.println("Column Family " + columnFamily + " already deleted ..");
+			//System.out.println("Column Family " + columnFamily + " already deleted ..");
 		}
 		HColumnDescriptor columnDescriptor = new HColumnDescriptor(columnFamily);
 
 		// Adding column family
 		admin.addColumn(Assignment2.OUTPUT_TABLE, columnDescriptor);
-		System.out.println("Column Family " + columnFamily + " added");
+		//System.out.println("Column Family " + columnFamily + " added");
 	}
 
 	public static class Task1Mapper extends TableMapper<ImmutableBytesWritable, LongWritable> {
 
 		public void map(ImmutableBytesWritable key, Result value, Context context)
 				throws IOException, InterruptedException {
-
+			// 97165
 			// extract info
 			long articleId = Bytes.toLong(key.get(), 0, 8);
 			long revisionId = Bytes.toLong(key.get(), 8, 8);
 			// write info
 			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), new LongWritable(revisionId));
+			if (articleId == 97165L) {
+				try {
+					throw new IOException(articleId + " " + revisionId +" "+ Tools.getWikiStringFromLong(value.raw()[0].getTimestamp()));
+				} catch (ParseException e) {
+					throw new IOException(articleId + " " + revisionId + " Unable to parse timestamp");
+					
+				}
+			}
 		}
 	}
 
@@ -246,7 +244,7 @@ public class Assignment2 extends Configured implements Tool {
 			Collections.sort(revisions);
 
 			// populate buffer
-			ByteBuffer result = new ByteBuffer(5);
+			ByteBuffer result = new ByteBuffer(revisions.size());
 			// result.append(Bytes.toBytes(revisions.size()));
 			for (int i = 0; i < revisions.size(); i++) {
 				result.append(Bytes.toBytes(revisions.get(i)));
