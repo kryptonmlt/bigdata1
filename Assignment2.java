@@ -92,7 +92,7 @@ public class Assignment2 extends Configured implements Tool {
 			job = Job.getInstance(conf, "BigData2");
 
 			TableMapReduceUtil.initTableMapperJob(Assignment2.INPUT_TABLE, scan, Task2Mapper.class,
-					ImmutableBytesWritable.class, IntWritable.class, job);
+					ImmutableBytesWritable.class, NullWritable.class, job);
 			TableMapReduceUtil.initTableReducerJob(Assignment2.OUTPUT_TABLE, Task2Reducer.class, job);
 
 			break;
@@ -258,8 +258,7 @@ public class Assignment2 extends Configured implements Tool {
 		}
 	}
 
-	public static class Task2Mapper extends TableMapper<ImmutableBytesWritable, IntWritable> {
-		private static IntWritable one = new IntWritable(1);
+	public static class Task2Mapper extends TableMapper<ImmutableBytesWritable, NullWritable> {
 
 		public void map(ImmutableBytesWritable key, Result value, Context context)
 				throws IOException, InterruptedException {
@@ -267,18 +266,18 @@ public class Assignment2 extends Configured implements Tool {
 			// extract info
 			long articleId = Bytes.toLong(key.get(), 0, 8);
 			// write info
-			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), one);
+			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), NullWritable.get());
 		}
 	}
 
-	public static class Task2Reducer extends TableReducer<ImmutableBytesWritable, IntWritable, ImmutableBytesWritable> {
-		public void reduce(ImmutableBytesWritable key, Iterable<IntWritable> values, Context context)
+	public static class Task2Reducer extends TableReducer<ImmutableBytesWritable, NullWritable, ImmutableBytesWritable> {
+		public void reduce(ImmutableBytesWritable key, Iterable<NullWritable> values, Context context)
 				throws IOException, InterruptedException {
 
 			// sort revisions of article id
 			int sum = 0;
 			for (IntWritable value : values) {
-				sum += value.get();
+				sum += 1;
 			}
 			int inverseSum = Integer.MAX_VALUE - sum;
 			Put put = new Put(Bytes.add(Bytes.toBytes(inverseSum), key.get()));
