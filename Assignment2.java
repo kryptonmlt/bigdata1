@@ -220,14 +220,6 @@ public class Assignment2 extends Configured implements Tool {
 			long revisionId = Bytes.toLong(key.get(), 8, 8);
 			// write info
 			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), new LongWritable(revisionId));
-			if (articleId == 97165L) {
-				try {
-					throw new IOException(articleId + " " + revisionId +" "+ Tools.getWikiStringFromLong(value.raw()[0].getTimestamp()));
-				} catch (ParseException e) {
-					throw new IOException(articleId + " " + revisionId + " Unable to parse timestamp");
-					
-				}
-			}
 		}
 	}
 
