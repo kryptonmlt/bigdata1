@@ -23,6 +23,7 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.ResultScanner;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.FilterList;
+import org.apache.hadoop.hbase.filter.FirstKeyOnlyFilter;
 import org.apache.hadoop.hbase.filter.FilterList.Operator;
 import org.apache.hadoop.hbase.filter.KeyOnlyFilter;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
@@ -43,7 +44,7 @@ public class Assignment2 extends Configured implements Tool {
 	public static final String Task2_CF = "Task2";
 	public static final String Task3_CF = "Task3";
 
-	public static final String INPUT_TABLE = "BD4Project2Sample";
+	public static final String INPUT_TABLE = "BD4Project2";
 	public static final String OUTPUT_TABLE = "2222148p";
 	public static final String INPUT_CF = "WD";
 
@@ -60,6 +61,7 @@ public class Assignment2 extends Configured implements Tool {
 
 		// create filters.. we only need key
 		FilterList allFilters = new FilterList(Operator.MUST_PASS_ALL);
+		allFilters.addFilter(new FirstKeyOnlyFilter());
 		allFilters.addFilter(new KeyOnlyFilter());
 
 		Scan scan = new Scan();
@@ -92,7 +94,7 @@ public class Assignment2 extends Configured implements Tool {
 			job = Job.getInstance(conf, "BigData2");
 
 			TableMapReduceUtil.initTableMapperJob(Assignment2.INPUT_TABLE, scan, Task2Mapper.class,
-					ImmutableBytesWritable.class, NullWritable.class, job);
+					ImmutableBytesWritable.class, IntWritable.class, job);
 			TableMapReduceUtil.initTableReducerJob(Assignment2.OUTPUT_TABLE, Task2Reducer.class, job);
 
 			break;
@@ -220,6 +222,14 @@ public class Assignment2 extends Configured implements Tool {
 			long revisionId = Bytes.toLong(key.get(), 8, 8);
 			// write info
 			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), new LongWritable(revisionId));
+			if (articleId == 97165L) {
+				try {
+					throw new IOException(articleId + " " + revisionId +" "+ Tools.getWikiStringFromLong(value.raw()[0].getTimestamp()));
+				} catch (ParseException e) {
+					throw new IOException(articleId + " " + revisionId + " Unable to parse timestamp");
+					
+				}
+			}
 		}
 	}
 
@@ -250,7 +260,8 @@ public class Assignment2 extends Configured implements Tool {
 		}
 	}
 
-	public static class Task2Mapper extends TableMapper<ImmutableBytesWritable, NullWritable> {
+	public static class Task2Mapper extends TableMapper<ImmutableBytesWritable, IntWritable> {
+		private static IntWritable one = new IntWritable(1);
 
 		public void map(ImmutableBytesWritable key, Result value, Context context)
 				throws IOException, InterruptedException {
@@ -258,18 +269,18 @@ public class Assignment2 extends Configured implements Tool {
 			// extract info
 			long articleId = Bytes.toLong(key.get(), 0, 8);
 			// write info
-			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), NullWritable.get());
+			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), one);
 		}
 	}
 
-	public static class Task2Reducer extends TableReducer<ImmutableBytesWritable, NullWritable, ImmutableBytesWritable> {
-		public void reduce(ImmutableBytesWritable key, Iterable<NullWritable> values, Context context)
+	public static class Task2Reducer extends TableReducer<ImmutableBytesWritable, IntWritable, ImmutableBytesWritable> {
+		public void reduce(ImmutableBytesWritable key, Iterable<IntWritable> values, Context context)
 				throws IOException, InterruptedException {
 
 			// sort revisions of article id
 			int sum = 0;
 			for (IntWritable value : values) {
-				sum += 1;
+				sum += value.get();
 			}
 			int inverseSum = Integer.MAX_VALUE - sum;
 			Put put = new Put(Bytes.add(Bytes.toBytes(inverseSum), key.get()));
