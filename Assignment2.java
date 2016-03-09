@@ -295,12 +295,10 @@ public class Assignment2 extends Configured implements Tool {
 			long articleId = Bytes.toLong(key.get(), 0, 8);
 			long revisionId = Bytes.toLong(key.get(), 8, 8);
 
-			for (KeyValue kv : value.raw()) {
-				long timestamp = kv.getTimestamp();
-				byte[] output = Bytes.add(Bytes.toBytes(timestamp), Bytes.toBytes(revisionId));
-				// write info
-				context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), new ImmutableBytesWritable(output));
-			}
+			long timestamp = value.raw()[0].getTimestamp();
+			byte[] output = Bytes.add(Bytes.toBytes(timestamp), Bytes.toBytes(revisionId));
+			// write info
+			context.write(new ImmutableBytesWritable(Bytes.toBytes(articleId)), new ImmutableBytesWritable(output));
 		}
 	}
 
